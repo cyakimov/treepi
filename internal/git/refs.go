@@ -37,6 +37,20 @@ func (c *Client) ResolveRef(ctx context.Context, dir, rev string) (string, error
 	return oid, nil
 }
 
+// RemoteHeadBranch returns the default branch a remote's HEAD points at (e.g.
+// "main" for origin), or "" if origin/HEAD is unset. Used for trunk autodetect.
+func (c *Client) RemoteHeadBranch(ctx context.Context, dir, remote string) (string, error) {
+	ref, err := c.out(ctx, dir, "symbolic-ref", "--short", "--quiet", "refs/remotes/"+remote+"/HEAD")
+	if err != nil {
+		var ce *CmdError
+		if errors.As(err, &ce) && ce.ExitCode() == 1 {
+			return "", nil // origin/HEAD not set
+		}
+		return "", err
+	}
+	return strings.TrimPrefix(ref, remote+"/"), nil
+}
+
 // SymbolicHEAD returns the short branch name HEAD points at, or "" if detached.
 func (c *Client) SymbolicHEAD(ctx context.Context, dir string) (string, error) {
 	name, err := c.out(ctx, dir, "symbolic-ref", "--short", "--quiet", "HEAD")
