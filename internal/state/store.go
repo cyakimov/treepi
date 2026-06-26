@@ -53,11 +53,14 @@ func (s *Store) manifestPath() string { return filepath.Join(s.dir, manifestName
 func (s *Store) lockPath() string     { return filepath.Join(s.dir, lockName) }
 
 // Txn is the mutable handle passed to Store.Do. The function mutates
-// tx.Manifest() and calls tx.MarkDirty() to request a persisted write.
+// tx.Manifest() and calls tx.MarkDirty() to request a persisted write, and may
+// append journal records (begin/commit) that are flushed atomically with the
+// manifest under the same lock.
 type Txn struct {
-	m     *Manifest
-	now   time.Time
-	dirty bool
+	m       *Manifest
+	now     time.Time
+	dirty   bool
+	records []opRecord
 }
 
 // Manifest returns the live manifest to mutate.
@@ -68,6 +71,20 @@ func (tx *Txn) Now() time.Time { return tx.now }
 
 // MarkDirty requests that the manifest be persisted at the end of the txn.
 func (tx *Txn) MarkDirty() { tx.dirty = true }
+
+// AppendBegin journals the start of op, capturing its inverse before any git
+// side effect runs (those run outside this lock, in the two-tier model).
+func (tx *Txn) AppendBegin(op *Op) {
+	tx.records = append(tx.records, opRecord{Rec: recBegin, Op: op})
+	tx.m.LastOpID = op.ID
+	tx.dirty = true
+}
+
+// AppendCommit journals the successful completion of op at finalPhase.
+func (tx *Txn) AppendCommit(opID, finalPhase string) {
+	tx.records = append(tx.records, opRecord{Rec: recCommit, ID: opID, Phase: finalPhase})
+	tx.dirty = true
+}
 
 // Do runs fn inside the fast critical section: it acquires the flock (failing
 // fast with exit.LockBusy rather than hanging), loads the manifest, runs the
@@ -111,6 +128,11 @@ func (s *Store) Do(ctx context.Context, rec Reconciler, fn func(tx *Txn) error) 
 	if changed || tx.dirty {
 		m.UpdatedAt = s.clock.Now()
 		if err := s.save(m, gen); err != nil {
+			return err
+		}
+	}
+	if len(tx.records) > 0 {
+		if err := s.appendJournal(tx.records); err != nil {
 			return err
 		}
 	}
