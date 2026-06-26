@@ -155,8 +155,8 @@ func (s *Service) Merge(ctx context.Context, task string) (*MergeResult, error) 
 	postCtx := s.baseHookContext(ctx, config.EventPostMerge, task, t.Type, branch, dir, t.Slot)
 	postCtx.Op, postCtx.OldHead, postCtx.NewHead = opID, trunkOID, rebasedOID
 	postCtx.WorktreePath = postCtx.MainPath
-	if postCtx.WorktreePath == "" {
-		postCtx.WorktreePath = root
+	if postCtx.WorktreePath == "" || !fileExists(postCtx.WorktreePath) {
+		postCtx.WorktreePath = root // the trunk worktree may have been removed concurrently
 	}
 	if _, _, herr := s.fireHook(ctx, postCtx); herr != nil {
 		s.warnf("post_merge hook failed (merge already committed): %v", herr)

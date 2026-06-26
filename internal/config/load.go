@@ -90,7 +90,7 @@ func applyFileConfig(dst *Config, fc fileConfig, allowHooks bool, path string) e
 		dst.BaseDirTemplate = *fc.Placement.BaseDir
 	}
 	if b := fc.Branch; b != nil {
-		if len(b.Types) > 0 {
+		if b.Types != nil { // an explicit types = [] overrides, consistent with verify
 			dst.BranchTypes = append([]string(nil), b.Types...)
 		}
 		if b.Template != nil {

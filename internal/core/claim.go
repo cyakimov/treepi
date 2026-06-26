@@ -162,6 +162,9 @@ func (s *Service) claimCreate(ctx context.Context, task, owner, typ string) (*Ta
 			return info, nil
 		case task == "" && errors.Is(cerr, errClaimRace):
 			continue // our fresh tree was claimed first; make another
+		case errors.Is(cerr, errClaimRace):
+			// Explicit name: cannot pick another, surface as lease-held not internal.
+			return nil, exit.New(exit.LeaseHeld, "lease_held", "task was claimed by another owner: "+name)
 		default:
 			return nil, cerr
 		}
@@ -170,30 +173,33 @@ func (s *Service) claimCreate(ctx context.Context, task, owner, typ string) (*Ta
 }
 
 // Release clears a task's lease (file + manifest mirror), refusing a lease owned
-// by another unless Force, and optionally removing the worktree.
+// by another unless Force, and optionally removing the worktree. The owner check
+// and the clear happen in one locked transaction (after Reconcile) so a
+// concurrent re-claim cannot have the guard pass against a stale owner.
 func (s *Service) Release(ctx context.Context, task string, opts ReleaseOptions) (*ReleaseResult, error) {
-	m, err := s.store.View()
+	var res *ReleaseResult
+	err := s.store.Do(ctx, s.reconciler(), func(tx *state.Txn) error {
+		t := tx.Manifest().Tasks[task]
+		if t == nil {
+			return exit.New(exit.NotFound, "not_found", "unknown task: "+task)
+		}
+		if t.Lease != nil && t.Lease.Owner != defaultOwner() && !opts.Force {
+			return exit.New(exit.LeaseHeld, "lease_held", "task is leased by "+t.Lease.Owner+" (use --force)")
+		}
+		res = &ReleaseResult{Task: task, Branch: t.Branch}
+		if rerr := s.store.ReleaseLease(task); rerr != nil {
+			return rerr
+		}
+		if t.Lease != nil {
+			t.Lease = nil
+			tx.MarkDirty()
+		}
+		res.LeaseCleared = true
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	t := m.Tasks[task]
-	if t == nil {
-		return nil, exit.New(exit.NotFound, "not_found", "unknown task: "+task)
-	}
-	if t.Lease != nil && t.Lease.Owner != defaultOwner() && !opts.Force {
-		return nil, exit.New(exit.LeaseHeld, "lease_held", "task is leased by "+t.Lease.Owner+" (use --force)")
-	}
-
-	res := &ReleaseResult{Task: task, Branch: t.Branch}
-	_ = s.store.ReleaseLease(task)
-	_ = s.store.Do(ctx, nil, func(tx *state.Txn) error {
-		if tt := tx.Manifest().Tasks[task]; tt != nil && tt.Lease != nil {
-			tt.Lease = nil
-			tx.MarkDirty()
-		}
-		return nil
-	})
-	res.LeaseCleared = true
 
 	if opts.Rm {
 		// The lease is already cleared, so Remove's owner-guard is moot; its dirty

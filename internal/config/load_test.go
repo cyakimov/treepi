@@ -200,6 +200,20 @@ func TestLoadRejectsBadInput(t *testing.T) {
 	}
 }
 
+func TestLoadEmptyTypesOverrides(t *testing.T) {
+	// An explicit `types = []` must override the lower layer (consistent with how
+	// `verify = []` clears the merge command), not be treated as "unset".
+	root := t.TempDir()
+	writeFile(t, root, ".treepi.toml", "[branch]\ntypes = []\ndefault_type = \"\"\n")
+	cfg, err := Load(LoadOptions{Root: root, Getenv: noEnv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.BranchTypes) != 0 {
+		t.Errorf("explicit empty types should override defaults; got %v", cfg.BranchTypes)
+	}
+}
+
 func TestLoadBadEnvDuration(t *testing.T) {
 	env := map[string]string{"TREEPI_LEASE_TTL": "not-a-duration"}
 	if _, err := Load(LoadOptions{Getenv: func(k string) string { return env[k] }}); err == nil {

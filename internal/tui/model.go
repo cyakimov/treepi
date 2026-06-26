@@ -133,9 +133,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastErr = msg.err
 			return m, nil
 		}
-		m.lastErr = nil
-		m.setItems(msg.tasks)
-		return m, nil
+		// A background refresh must not clear an action's error (it would flash and
+		// vanish), nor reorder rows while the user is actively filtering (the tick
+		// guard can race with filtering starting after the refresh was scheduled).
+		if m.list.FilterState() == list.Filtering {
+			return m, nil
+		}
+		return m, m.setItems(msg.tasks)
 
 	case actionDoneMsg:
 		m.state = browsing
@@ -229,8 +233,10 @@ func (m Model) act(op string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// setItems rebuilds the list, preserving the selection by task name.
-func (m *Model) setItems(tasks []core.TaskInfo) {
+// setItems rebuilds the list, preserving the selection by task name. It returns
+// the SetItems command, which re-applies an active filter to the new items; the
+// caller must thread it back through the event loop or an applied filter is lost.
+func (m *Model) setItems(tasks []core.TaskInfo) tea.Cmd {
 	selected := ""
 	if it, ok := m.list.SelectedItem().(taskItem); ok {
 		selected = it.ti.Task
@@ -243,10 +249,11 @@ func (m *Model) setItems(tasks []core.TaskInfo) {
 			keep = i
 		}
 	}
-	m.list.SetItems(items)
+	cmd := m.list.SetItems(items)
 	if keep >= 0 {
 		m.list.Select(keep)
 	}
+	return cmd
 }
 
 func (m Model) View() string {
