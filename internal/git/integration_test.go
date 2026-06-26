@@ -11,6 +11,15 @@ import (
 	"testing"
 )
 
+// configNull makes a test repo hermetic: it nullifies the developer's global
+// and system git config so the suite never inherits commit signing (e.g. a
+// 1Password/gpg signing program), aliases, or hooks. Tests pass identity
+// explicitly via idEnv.
+var configNull = []string{
+	"GIT_CONFIG_GLOBAL=" + os.DevNull,
+	"GIT_CONFIG_SYSTEM=" + os.DevNull,
+}
+
 var idEnv = []string{
 	"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 	"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
@@ -20,7 +29,8 @@ func mustGit(t *testing.T, dir string, env []string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(os.Environ(), configNull...)
+	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -37,7 +47,9 @@ func newTestRepo(t *testing.T) (string, *Client) {
 	}
 	mustGit(t, dir, idEnv, "add", "tracked.txt")
 	mustGit(t, dir, idEnv, "commit", "-q", "-m", "init")
-	return dir, NewClient(ExecRunner{})
+	// The client under test runs with the same hermetic config; Snapshot still
+	// stamps its own identity, so commit-tree works without idEnv here.
+	return dir, NewClient(ExecRunner{Env: configNull})
 }
 
 func TestIntegrationCommonDirIsAbsoluteFromSubdir(t *testing.T) {
