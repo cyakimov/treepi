@@ -17,6 +17,7 @@ import (
 	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/exit"
 	"github.com/cyakimov/treepi/internal/git"
+	"github.com/cyakimov/treepi/internal/hooks"
 	"github.com/cyakimov/treepi/internal/repo"
 	"github.com/cyakimov/treepi/internal/state"
 )
@@ -27,6 +28,20 @@ type Clock interface {
 	NewID() string
 }
 
+// HookRunner executes a resolved lifecycle hook. The default implementation is
+// *hooks.Runner; tests inject a fake via WithHookRunner.
+type HookRunner interface {
+	Run(ctx context.Context, spec config.HookSpec, hc hooks.Context) (map[string]any, error)
+}
+
+// Option customizes a Service at construction (used by tests).
+type Option func(*Service)
+
+// WithHookRunner overrides the default hook runner (a test seam).
+func WithHookRunner(h HookRunner) Option {
+	return func(s *Service) { s.hooks = h }
+}
+
 // Service is the orchestration layer. Construct it with Open.
 type Service struct {
 	git   *git.Client
@@ -35,11 +50,13 @@ type Service struct {
 	cfg   config.Config
 	clock Clock
 	warn  io.Writer
+	hooks HookRunner
 }
 
 // Open discovers the repo containing dir, resolves the trunk, and opens the
-// state store under the shared .git dir.
-func Open(ctx context.Context, dir string, cfg config.Config, clock Clock, warn io.Writer) (*Service, error) {
+// state store under the shared .git dir. Optional Options (e.g. a fake hook
+// runner) are applied last.
+func Open(ctx context.Context, dir string, cfg config.Config, clock Clock, warn io.Writer, opts ...Option) (*Service, error) {
 	g := git.NewClient(git.ExecRunner{})
 
 	trunk := cfg.Trunk
@@ -62,7 +79,11 @@ func Open(ctx context.Context, dir string, cfg config.Config, clock Clock, warn 
 	if warn == nil {
 		warn = io.Discard
 	}
-	return &Service{git: g, repo: r, store: st, cfg: cfg, clock: clock, warn: warn}, nil
+	s := &Service{git: g, repo: r, store: st, cfg: cfg, clock: clock, warn: warn, hooks: hooks.New(warn)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // Repo exposes the resolved layout (used by the cli for display).
