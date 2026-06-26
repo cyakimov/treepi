@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/exit"
 	"github.com/cyakimov/treepi/internal/git"
 	"github.com/cyakimov/treepi/internal/state"
@@ -66,7 +67,20 @@ func (s *Service) Remove(ctx context.Context, task string, force bool) (*RemoveR
 		}
 	}
 
-	// (pre_remove hook runs here once hooks land at task 7.)
+	opID := s.clock.NewID()
+
+	// pre_remove hook (runs before any destruction, so abort is honored: the tree
+	// is left intact). Default warn - a teardown failure should not strand a tree.
+	hc := s.baseHookContext(ctx, config.EventPreRemove, task, t.Type, branch, dir, t.Slot)
+	hc.Op = opID
+	if _, spec, herr := s.fireHook(ctx, hc); herr != nil {
+		if spec.OnFailure != config.OnFailureWarn {
+			return nil, exit.Wrap(exit.HookAbort, "pre_remove_aborted",
+				"pre_remove hook failed; worktree left intact", herr)
+		}
+		s.warnf("pre_remove hook failed (continuing with removal): %v", herr)
+	}
+
 	_ = s.git.WorktreeRemove(ctx, root, dir, force)
 	_ = s.git.WorktreePrune(ctx, root)
 	_ = s.git.BranchDelete(ctx, root, branch, true) // recoverable via undo (branchOID)
@@ -75,7 +89,6 @@ func (s *Service) Remove(ctx context.Context, task string, force bool) (*RemoveR
 	if snapCreated {
 		steps = append(steps, state.Step{Kind: state.StepRestoreTree, Path: dir, Snapshot: snapRef})
 	}
-	opID := s.clock.NewID()
 	if err := s.store.Do(ctx, nil, func(tx *state.Txn) error {
 		delete(tx.Manifest().Tasks, task)
 		tx.AppendBegin(&state.Op{

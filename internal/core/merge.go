@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/exit"
 	"github.com/cyakimov/treepi/internal/git"
 	"github.com/cyakimov/treepi/internal/state"
@@ -93,12 +94,29 @@ func (s *Service) Merge(ctx context.Context, task string) (*MergeResult, error) 
 	}
 
 	// Verify on the rebased tip (lock-free). Failure leaves the branch rebased.
+	// This is the simple argv gate (exit 8); the pre_merge hook below is the
+	// full-env lifecycle gate (exit 9). Verify runs first.
 	if len(s.cfg.Verify) > 0 {
 		if verr := s.runVerify(ctx, dir, s.cfg.Verify); verr != nil {
 			s.unmerge(ctx, task)
 			return nil, exit.Wrap(exit.VerifyFailed, "verify_failed",
 				"verify failed; merge aborted, branch left rebased", verr)
 		}
+	}
+
+	opID := s.clock.NewID()
+
+	// pre_merge hook on the rebased tip (default abort). Failure leaves the branch
+	// rebased and trunk untouched - nothing tracked is lost.
+	preCtx := s.baseHookContext(ctx, config.EventPreMerge, task, t.Type, branch, dir, t.Slot)
+	preCtx.Op, preCtx.OldHead, preCtx.NewHead = opID, trunkOID, rebasedOID
+	if _, spec, herr := s.fireHook(ctx, preCtx); herr != nil {
+		if spec.OnFailure != config.OnFailureWarn {
+			s.unmerge(ctx, task)
+			return nil, exit.Wrap(exit.HookAbort, "pre_merge_aborted",
+				"pre_merge hook failed; merge aborted, branch left rebased", herr)
+		}
+		s.warnf("pre_merge hook failed (proceeding, on_failure=warn): %v", herr)
 	}
 
 	// Fast-forward trunk, conditional on its checkout state.
@@ -132,8 +150,19 @@ func (s *Service) Merge(ctx context.Context, task string) (*MergeResult, error) 
 		_ = s.git.BranchDelete(ctx, root, branch, true)
 	}
 
+	// post_merge hook (warn-only; trunk has advanced, nothing to roll back). The
+	// feature tree is gone, so the hook runs in the trunk worktree (or repo root).
+	postCtx := s.baseHookContext(ctx, config.EventPostMerge, task, t.Type, branch, dir, t.Slot)
+	postCtx.Op, postCtx.OldHead, postCtx.NewHead = opID, trunkOID, rebasedOID
+	postCtx.WorktreePath = postCtx.MainPath
+	if postCtx.WorktreePath == "" {
+		postCtx.WorktreePath = root
+	}
+	if _, _, herr := s.fireHook(ctx, postCtx); herr != nil {
+		s.warnf("post_merge hook failed (merge already committed): %v", herr)
+	}
+
 	// Finalize: drop the task and journal the merge with its guarded inverse.
-	opID := s.clock.NewID()
 	if err := s.store.Do(ctx, nil, func(tx *state.Txn) error {
 		delete(tx.Manifest().Tasks, task)
 		tx.AppendBegin(&state.Op{

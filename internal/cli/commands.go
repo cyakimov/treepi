@@ -98,7 +98,7 @@ func mergeCmd() *cobra.Command {
 				return fail(cmd, "merge", err)
 			}
 			if jsonMode(cmd) {
-				return emitJSON(cmd.OutOrStdout(), "merge", res)
+				return emitJSONWarn(cmd.OutOrStdout(), "merge", res, svc.Warnings())
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "merged %s into %s\n", res.Branch, res.Trunk)
 			return nil
@@ -122,7 +122,7 @@ func rmCmd() *cobra.Command {
 				return fail(cmd, "rm", err)
 			}
 			if jsonMode(cmd) {
-				return emitJSON(cmd.OutOrStdout(), "rm", res)
+				return emitJSONWarn(cmd.OutOrStdout(), "rm", res, svc.Warnings())
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed %s (%s)\n", res.Task, res.Branch)
 			return nil
