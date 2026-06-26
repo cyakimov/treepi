@@ -45,6 +45,9 @@ homebrew_casks:
     # Symlink `tp` alongside `treepi` - the `tp` alias is not a second binary.
     custom_block: |
       binary "treepi", target: "tp"
+    # The cask is generated but not pushed until a cross-repo HOMEBREW_TAP_TOKEN
+    # exists; set skip_upload to false (and add the secret) to publish the tap.
+    skip_upload: true
 
 scoops:
   - repository:
@@ -53,6 +56,7 @@ scoops:
     homepage: https://github.com/cyakimov/treepi
     description: Orchestrate git worktrees for humans and agents
     license: Apache-2.0
+    skip_upload: true # see the cask note above
 
 release:
   github:
