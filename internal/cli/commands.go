@@ -83,6 +83,56 @@ func whereCmd() *cobra.Command {
 	}
 }
 
+func syncCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "sync <task>",
+		Short: "Rebase a task's worktree onto the latest trunk",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "sync", err)
+			}
+			info, err := svc.Sync(cmd.Context(), args[0])
+			if err != nil {
+				return fail(cmd, "sync", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "sync", info)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "synced %s onto %s\n", info.Task, svc.Repo().Trunk)
+			return nil
+		},
+	}
+}
+
+func undoCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "undo",
+		Short: "Reverse the last mutating operation",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "undo", err)
+			}
+			res, err := svc.Undo(cmd.Context())
+			if err != nil {
+				return fail(cmd, "undo", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "undo", res)
+			}
+			if res.Reverted {
+				fmt.Fprintf(cmd.OutOrStdout(), "reverted %s (%s)\n", res.Op, res.OpID)
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "nothing to undo")
+			}
+			return nil
+		},
+	}
+}
+
 func shellInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:       "shell-init [bash|zsh|fish]",

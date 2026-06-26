@@ -55,6 +55,14 @@ func (s *Store) Undo(ctx context.Context, exec Executor) (*Op, error) {
 
 	marker := &Op{ID: op.ID + ".undo", Kind: "undo", StartedAt: s.clock.Now()}
 	if err := s.Do(ctx, nil, func(tx *Txn) error {
+		m := tx.Manifest()
+		for name, before := range op.TasksBefore {
+			if before == nil {
+				delete(m.Tasks, name)
+			} else {
+				m.Tasks[name] = before
+			}
+		}
 		tx.AppendBegin(marker)
 		tx.AppendCommit(marker.ID, "done")
 		return nil

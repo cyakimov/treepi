@@ -110,6 +110,44 @@ func (c *Client) DeleteRef(ctx context.Context, dir, ref string) error {
 	return c.runVoid(ctx, dir, "update-ref", "-d", ref)
 }
 
+// Ref is a (name, oid) pair from for-each-ref.
+type Ref struct {
+	Name string
+	OID  string
+}
+
+// ForEachHead returns every local branch ref and its OID.
+func (c *Client) ForEachHead(ctx context.Context, dir string) ([]Ref, error) {
+	out, err := c.out(ctx, dir, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	var refs []Ref
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, oid, ok := strings.Cut(line, " ")
+		if ok {
+			refs = append(refs, Ref{Name: name, OID: oid})
+		}
+	}
+	return refs, nil
+}
+
+// RestoreWorktreeFrom overlays the file contents of source (a commit/tree) onto
+// the worktree at dir - used by undo to restore a captured snapshot's content.
+func (c *Client) RestoreWorktreeFrom(ctx context.Context, dir, source string) error {
+	return c.runVoid(ctx, dir, "checkout", source, "--", ".")
+}
+
+// ResetHard resets the worktree at dir (HEAD, index, and files) to oid. Used by
+// undo to reverse a rebase cleanly, moving everything together.
+func (c *Client) ResetHard(ctx context.Context, dir, oid string) error {
+	return c.runVoid(ctx, dir, "reset", "--hard", oid)
+}
+
 // BranchDelete deletes a branch. With force, uses -D; otherwise -d (which
 // refuses an unmerged branch). Callers in the no-trunk-worktree path prove
 // merged-ness with IsAncestor first, since -d is HEAD-relative.

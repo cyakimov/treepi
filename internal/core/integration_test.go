@@ -16,18 +16,30 @@ import (
 	"github.com/cyakimov/treepi/internal/exit"
 )
 
-func run(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+func gitEnv() []string {
+	return append(os.Environ(),
 		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
 	)
+}
+
+func run(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
+}
+
+// gitOK runs git and reports whether it exited zero (no fatal on failure).
+func gitOK(dir string, args ...string) bool {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	return cmd.Run() == nil
 }
 
 func newRepo(t *testing.T) string {
@@ -100,5 +112,68 @@ func TestIntegrationNewListWhere(t *testing.T) {
 	}
 	if _, err := svc.Where(ctx, "ghost"); exit.CodeOf(err) != exit.NotFound {
 		t.Fatalf("where ghost: got code %d, want NotFound", exit.CodeOf(err))
+	}
+}
+
+func TestIntegrationNewThenUndo(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc, err := Open(ctx, dir, config.Default(), clock.Real{}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := svc.New(ctx, "feat", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Undo(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Reverted || res.Op != "new" {
+		t.Fatalf("undo result = %+v", res)
+	}
+	// Worktree dir, branch, and manifest entry are all gone.
+	if _, err := os.Stat(info.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree still present after undo: %v", err)
+	}
+	if gitOK(dir, "rev-parse", "--verify", "--quiet", "refs/heads/feat/x") {
+		t.Fatal("branch feat/x still exists after undo")
+	}
+	if list, _ := svc.List(ctx, false); len(list) != 0 {
+		t.Fatalf("manifest not empty after undo: %d tasks", len(list))
+	}
+	// A second undo is a no-op.
+	if res2, _ := svc.Undo(ctx); res2.Reverted {
+		t.Fatal("double undo should be a no-op")
+	}
+}
+
+func TestIntegrationSyncRebasesOntoTrunk(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc, err := Open(ctx, dir, config.Default(), clock.Real{}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.New(ctx, "feat", "x"); err != nil {
+		t.Fatal(err)
+	}
+	// Advance trunk after the worktree was cut.
+	run(t, dir, "commit", "--allow-empty", "-q", "-m", "trunk advance")
+
+	info, err := svc.Sync(ctx, "x")
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if info.Status != "ready" {
+		t.Fatalf("status after sync = %s", info.Status)
+	}
+	// The feature branch now descends from the advanced trunk tip.
+	if !gitOK(dir, "merge-base", "--is-ancestor", "main", "feat/x") {
+		t.Fatal("feat/x was not rebased onto the advanced trunk")
 	}
 }

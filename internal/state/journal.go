@@ -30,7 +30,8 @@ const (
 	StepCreateRef      StepKind = "create_ref"      // create Ref at From (undo a deleted branch)
 	StepRemoveWorktree StepKind = "remove_worktree" // remove the worktree at Path
 	StepAddWorktree    StepKind = "add_worktree"    // recreate the worktree at Path on Branch at From
-	StepRestoreTree    StepKind = "restore_tree"    // restore Path's content from the Snapshot ref
+	StepRestoreTree    StepKind = "restore_tree"    // overlay Path's content from the Snapshot ref
+	StepResetHard      StepKind = "reset_hard"      // reset the worktree at Path (HEAD+index+files) to From
 	StepRewindTrunk    StepKind = "rewind_trunk"    // guarded: rewind Ref From<-To only if no branch built on To
 )
 
@@ -52,7 +53,12 @@ type Op struct {
 	Kind      string    `json:"kind"` // new|sync|merge|rm|undo
 	StartedAt time.Time `json:"startedAt"`
 	Phase     string    `json:"phase,omitempty"`
-	Steps     []Step    `json:"steps,omitempty"` // ordered inverse primitives
+	Steps     []Step    `json:"steps,omitempty"` // ordered inverse git primitives
+	// TasksBefore captures the manifest entries the op touched, as they were
+	// before it ran. On undo each is restored; a present key with a nil value
+	// means the task did not exist before (so undo deletes it). This is how undo
+	// spans the manifest in addition to refs/worktrees.
+	TasksBefore map[string]*Task `json:"tasksBefore,omitempty"`
 }
 
 // opRecord is one JSONL line: a begin (carrying the full op) or a commit

@@ -72,6 +72,8 @@ func (s *Service) New(ctx context.Context, typ, task string) (*TaskInfo, error) 
 				{Kind: state.StepRemoveWorktree, Path: path, Task: task},
 				{Kind: state.StepDeleteRef, Ref: "refs/heads/" + branch},
 			},
+			// The task did not exist before; undo deletes it.
+			TasksBefore: map[string]*state.Task{task: nil},
 		})
 		return nil
 	}); err != nil {
