@@ -21,6 +21,13 @@ func (c *Client) Toplevel(ctx context.Context, dir string) (string, error) {
 	return c.out(ctx, dir, "rev-parse", "--show-toplevel")
 }
 
+// GitDir returns the absolute .git directory for dir. In the main worktree this
+// equals CommonDir; in a linked worktree it is <common>/worktrees/<name>, which
+// lets callers detect a linked worktree by comparing the two.
+func (c *Client) GitDir(ctx context.Context, dir string) (string, error) {
+	return c.out(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir")
+}
+
 // ResolveRef returns the OID a ref/revision points at, or ErrRefNotFound.
 func (c *Client) ResolveRef(ctx context.Context, dir, rev string) (string, error) {
 	oid, err := c.out(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")

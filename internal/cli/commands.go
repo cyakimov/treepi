@@ -8,6 +8,32 @@ import (
 	"github.com/cyakimov/treepi/internal/exit"
 )
 
+func initCmd() *cobra.Command {
+	var force bool
+	c := &cobra.Command{
+		Use:   "init",
+		Short: "Scaffold .treepi.toml + hook stubs and bootstrap .gitignore",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "init", err)
+			}
+			res, err := svc.Init(cmd.Context(), force)
+			if err != nil {
+				return fail(cmd, "init", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "init", res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "initialized %s (%d file(s))\n", res.ConfigPath, len(res.Created))
+			return nil
+		},
+	}
+	c.Flags().BoolVarP(&force, "force", "f", false, "overwrite an existing .treepi.toml and hook stubs")
+	return c
+}
+
 func newCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "new <type> <task>",

@@ -1,0 +1,43 @@
+# treepi project configuration - committed and shared by every human and agent on
+# this repo. All keys are optional; treepi runs zero-config with the defaults
+# shown below. See docs/HOOKS.md for the lifecycle hooks.
+
+[branch]
+# types        = ["feat", "fix", "chore", "docs", "refactor"]
+# default_type = "feat"
+# trunk        = "main"            # default: origin/HEAD, else "main"
+# template     = "{type}/{task}"   # tokens: {type} {task}
+
+[placement]
+# base_dir = "{repo}.worktrees"    # tokens: {repo} (abs path), {repo_dir} (basename)
+
+[slots]
+# range = "0-15"                   # stable per-worktree integer for hook isolation
+
+[lease]
+# ttl = "2h"                       # durable agent lease lifetime
+
+[merge]
+# verify = ["just", "build"]       # argv run on the rebased tip before merge (exit 8 on failure)
+
+[snapshot]
+# include_ignored = [".env", ".env.local"]   # gitignored paths to snapshot too
+
+# Lifecycle hooks turn a bare worktree into a runnable, isolated environment.
+# command is an argv array (no implicit shell). on_failure: rollback | abort | warn
+# (defaults: post_create=rollback, pre_merge=abort, others=warn).
+[hooks.post_create]
+command = ["bash", ".treepi/hooks/post-create.sh"]
+timeout = "5m"
+
+# [hooks.post_sync]
+# command = ["bash", ".treepi/hooks/post-sync.sh"]
+
+# [hooks.pre_merge]
+# command = ["bash", ".treepi/hooks/pre-merge.sh"]
+
+# [hooks.post_merge]
+# command = ["bash", ".treepi/hooks/post-merge.sh"]
+
+# [hooks.pre_remove]
+# command = ["bash", ".treepi/hooks/pre-remove.sh"]
