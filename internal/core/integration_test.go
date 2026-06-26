@@ -82,7 +82,9 @@ func TestIntegrationNewListWhere(t *testing.T) {
 		t.Fatalf("new result = %+v", info)
 	}
 	// Sibling-adjacent: the worktree's parent is <resolved-repo-root>.worktrees.
-	wantBase := svc.Repo().Root + ".worktrees"
+	// Repo.Root keeps git's forward-slash form on Windows while BaseDir is
+	// filepath-normalized, so clean the expected value (as RenderBaseDir does).
+	wantBase := filepath.Clean(svc.Repo().Root + ".worktrees")
 	if got := filepath.Dir(info.Path); got != wantBase {
 		t.Fatalf("worktree base = %q, want %q (sibling-adjacent)", got, wantBase)
 	}
