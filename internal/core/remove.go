@@ -84,6 +84,7 @@ func (s *Service) Remove(ctx context.Context, task string, force bool) (*RemoveR
 	_ = s.git.WorktreeRemove(ctx, root, dir, force)
 	_ = s.git.WorktreePrune(ctx, root)
 	_ = s.git.BranchDelete(ctx, root, branch, true) // recoverable via undo (branchOID)
+	_ = s.store.ReleaseLease(task)                  // drop the durable lease file too
 
 	steps := []state.Step{{Kind: state.StepAddWorktree, Path: dir, Branch: branch, From: branchOID}}
 	if snapCreated {

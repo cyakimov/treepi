@@ -5,8 +5,99 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cyakimov/treepi/internal/core"
 	"github.com/cyakimov/treepi/internal/exit"
 )
+
+func claimCmd() *cobra.Command {
+	var owner, typ string
+	var noCreate bool
+	c := &cobra.Command{
+		Use:   "claim [<task>]",
+		Short: "Claim a free worktree (or create one) with a durable lease",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "claim", err)
+			}
+			req := core.ClaimRequest{Owner: owner, Type: typ, NoCreate: noCreate}
+			if len(args) == 1 {
+				req.Task = args[0]
+			}
+			info, err := svc.Claim(cmd.Context(), req)
+			if err != nil {
+				return fail(cmd, "claim", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSONWarn(cmd.OutOrStdout(), "claim", info, svc.Warnings())
+			}
+			lo := ""
+			if info.Lease != nil {
+				lo = info.Lease.Owner
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "claimed %s at %s (slot %d, owner %s)\n", info.Branch, info.Path, info.Slot, lo)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&owner, "owner", "", "lease owner (default $TREEPI_OWNER or user@host)")
+	c.Flags().StringVar(&typ, "type", "", "branch type when creating (default from config)")
+	c.Flags().BoolVar(&noCreate, "no-create", false, "fail if no free worktree exists instead of creating one")
+	return c
+}
+
+func releaseCmd() *cobra.Command {
+	var force, rm bool
+	c := &cobra.Command{
+		Use:   "release <task>",
+		Short: "Release a task's lease (optionally removing the worktree)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "release", err)
+			}
+			res, err := svc.Release(cmd.Context(), args[0], core.ReleaseOptions{Force: force, Rm: rm})
+			if err != nil {
+				return fail(cmd, "release", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "release", res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "released %s\n", res.Task)
+			return nil
+		},
+	}
+	c.Flags().BoolVarP(&force, "force", "f", false, "release a lease held by another owner")
+	c.Flags().BoolVar(&rm, "rm", false, "also remove the worktree and branch")
+	return c
+}
+
+func renewCmd() *cobra.Command {
+	var owner string
+	c := &cobra.Command{
+		Use:   "renew <task>",
+		Short: "Extend a claimed task's lease (heartbeat)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "renew", err)
+			}
+			info, err := svc.Renew(cmd.Context(), args[0], owner)
+			if err != nil {
+				return fail(cmd, "renew", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "renew", info)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "renewed %s\n", info.Task)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&owner, "owner", "", "lease owner (default $TREEPI_OWNER or user@host)")
+	return c
+}
 
 func initCmd() *cobra.Command {
 	var force bool
