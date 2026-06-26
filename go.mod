@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	github.com/gofrs/flock v0.13.0
+	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/spf13/cobra v1.10.2
 )
 

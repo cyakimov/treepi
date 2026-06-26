@@ -31,8 +31,18 @@ func (r *Repo) StateDir() string { return filepath.Join(r.CommonDir, "treepi") }
 // TaskPath renders the worktree path for a task under BaseDir.
 func (r *Repo) TaskPath(task string) string { return filepath.Join(r.BaseDir, task) }
 
-// BranchName renders the branch for a task, e.g. feat/login-fix.
-func BranchName(typ, task string) string { return typ + "/" + task }
+// BranchName renders the branch for a task from a template whose tokens are
+// {type} and {task}, e.g. "{type}/{task}" -> "feat/login-fix". An empty template
+// defaults to "{type}/{task}". The rendered name is validated by the caller via
+// git check-ref-format.
+func BranchName(template, typ, task string) string {
+	if template == "" {
+		template = "{type}/{task}"
+	}
+	out := strings.ReplaceAll(template, "{type}", typ)
+	out = strings.ReplaceAll(out, "{task}", task)
+	return out
+}
 
 // Discover resolves the repo containing dir. trunk and baseTemplate come from
 // resolved config; baseTemplate supports the {repo} (absolute repo path) and

@@ -9,12 +9,15 @@ import (
 
 	"github.com/cyakimov/treepi/internal/cli"
 	"github.com/cyakimov/treepi/internal/exit"
+	buildversion "github.com/cyakimov/treepi/internal/version"
 )
 
-// version is overridden via -ldflags at release time.
+// version is overridden via `-ldflags "-X main.version=..."` at release time.
 var version = "dev"
 
 func main() {
+	buildversion.Value = version // expose the stamped version to non-cli packages (hooks env)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

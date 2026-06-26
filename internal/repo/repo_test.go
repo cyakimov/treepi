@@ -22,8 +22,14 @@ func TestRenderBaseDir(t *testing.T) {
 }
 
 func TestBranchNameAndPaths(t *testing.T) {
-	if got := BranchName("feat", "login-fix"); got != "feat/login-fix" {
+	if got := BranchName("{type}/{task}", "feat", "login-fix"); got != "feat/login-fix" {
 		t.Errorf("BranchName = %q", got)
+	}
+	if got := BranchName("", "feat", "login-fix"); got != "feat/login-fix" {
+		t.Errorf("BranchName default = %q", got)
+	}
+	if got := BranchName("wip/{task}", "feat", "x"); got != "wip/x" {
+		t.Errorf("BranchName template = %q", got)
 	}
 	r := &Repo{CommonDir: "/a/b/repo/.git", BaseDir: "/a/b/repo.worktrees"}
 	if got := r.TaskPath("login"); got != "/a/b/repo.worktrees/login" {

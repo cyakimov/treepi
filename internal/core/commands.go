@@ -24,7 +24,7 @@ func (s *Service) New(ctx context.Context, typ, task string) (*TaskInfo, error) 
 	if task == "" {
 		return nil, exit.New(exit.Usage, "invalid_task", "a task name is required")
 	}
-	branch := repo.BranchName(typ, task)
+	branch := repo.BranchName(s.cfg.BranchTemplate, typ, task)
 	if err := s.git.CheckRefFormat(ctx, branch); err != nil {
 		return nil, exit.Wrap(exit.Usage, "invalid_refname", "invalid branch name "+branch, err)
 	}
