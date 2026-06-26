@@ -83,7 +83,7 @@ func newRoot() *cobra.Command {
 	root.PersistentFlags().Bool("json", false, "emit machine-readable JSON")
 	root.AddCommand(initCmd(), newCmd(), lsCmd(), whereCmd(), shellInitCmd(),
 		syncCmd(), mergeCmd(), rmCmd(), runCmd(), undoCmd(),
-		claimCmd(), releaseCmd(), renewCmd())
+		claimCmd(), releaseCmd(), renewCmd(), dashCmd())
 	return root
 }
 
@@ -93,7 +93,7 @@ func newRoot() *cobra.Command {
 // config's branch types, so a repo-defined type routes correctly.
 func rewriteArgs(args []string, known map[string]bool, cfg config.Config) []string {
 	if len(args) == 0 {
-		return []string{"ls"} // placeholder for the dashboard (task 8)
+		return []string{"dash"} // bare `tp` opens the interactive dashboard
 	}
 	first := args[0]
 	if strings.HasPrefix(first, "-") || known[first] {

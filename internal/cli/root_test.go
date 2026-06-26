@@ -22,7 +22,7 @@ func TestRewriteArgs(t *testing.T) {
 		cfg  config.Config
 		want []string
 	}{
-		{"bare -> dashboard", nil, def, []string{"ls"}},
+		{"bare -> dashboard", nil, def, []string{"dash"}},
 		{"known command untouched", []string{"ls"}, def, []string{"ls"}},
 		{"branch type -> new", []string{"feat", "x"}, def, []string{"new", "feat", "x"}},
 		{"custom type -> new", []string{"spike", "x"}, custom, []string{"new", "spike", "x"}},

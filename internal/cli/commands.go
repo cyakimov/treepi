@@ -2,12 +2,53 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/cyakimov/treepi/internal/core"
 	"github.com/cyakimov/treepi/internal/exit"
+	"github.com/cyakimov/treepi/internal/tui"
 )
+
+func dashCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "dash",
+		Short: "Live interactive worktree dashboard",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "dash", err)
+			}
+			// Degrade to the static table off a TTY, in CI, or under --json.
+			if jsonMode(cmd) || !isTTY(os.Stdout) {
+				tasks, lerr := svc.List(cmd.Context(), true)
+				if lerr != nil {
+					return fail(cmd, "dash", lerr)
+				}
+				if jsonMode(cmd) {
+					return emitJSON(cmd.OutOrStdout(), "dash", tasks)
+				}
+				renderTasks(cmd.OutOrStdout(), tasks)
+				return nil
+			}
+			path, rerr := tui.Run(cmd.Context(), svc)
+			if rerr != nil {
+				return fail(cmd, "dash", rerr)
+			}
+			if path != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), path) // captured by the `tp` cd-wrapper
+			}
+			return nil
+		},
+	}
+}
+
+func isTTY(f *os.File) bool {
+	return term.IsTerminal(int(f.Fd()))
+}
 
 func claimCmd() *cobra.Command {
 	var owner, typ string
@@ -365,6 +406,10 @@ func shellInitScript(shell string) (string, error) {
     local d
     d="$(command treepi where "$2")" || return $?
     cd "$d"
+  elif [ "$#" -eq 0 ]; then
+    local d
+    d="$(command treepi dash)" || return $?
+    [ -n "$d" ] && cd "$d"
   else
     command treepi "$@"
   fi
@@ -374,6 +419,9 @@ func shellInitScript(shell string) (string, error) {
   if test "$argv[1]" = "cd"; and test -n "$argv[2]"
     set -l d (command treepi where "$argv[2]"); or return $status
     cd $d
+  else if test (count $argv) -eq 0
+    set -l d (command treepi dash); or return $status
+    test -n "$d"; and cd $d
   else
     command treepi $argv
   end
