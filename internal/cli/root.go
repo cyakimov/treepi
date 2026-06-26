@@ -13,13 +13,27 @@ import (
 	"github.com/cyakimov/treepi/internal/clock"
 	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/core"
+	"github.com/cyakimov/treepi/internal/exit"
+	"github.com/cyakimov/treepi/internal/git"
 )
 
 var version = "dev"
 
-// Execute builds the root command, applies arg-routing, and runs it.
+// loaded holds the once-resolved layered config. A malformed-config error is
+// deferred to openService so commands that never open a service (--help,
+// shell-init, completion) still run.
+type loadedConfig struct {
+	cfg config.Config
+	err error
+}
+
+var loaded loadedConfig
+
+// Execute builds the root command, resolves the layered config once, applies
+// arg-routing (using the repo's own branch types), and runs it.
 func Execute(ctx context.Context, v string) error {
 	version = v
+	loaded = resolveConfig(ctx)
 	root := newRoot()
 	known := map[string]bool{"help": true, "completion": true}
 	for _, c := range root.Commands() {
@@ -28,8 +42,34 @@ func Execute(ctx context.Context, v string) error {
 			known[a] = true
 		}
 	}
-	root.SetArgs(rewriteArgs(os.Args[1:], known))
+	root.SetArgs(rewriteArgs(os.Args[1:], known, loaded.cfg))
 	return root.ExecuteContext(ctx)
+}
+
+// resolveConfig loads the layered configuration once. It resolves the repo root
+// best-effort ("" when not inside a repo) so the repo-file layers can be read,
+// and defers any load error for openService to surface as exit 2.
+func resolveConfig(ctx context.Context) loadedConfig {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return loadedConfig{cfg: config.Default(), err: err}
+	}
+	home, _ := os.UserHomeDir()
+	cfg, lerr := config.Load(config.LoadOptions{Root: repoRoot(ctx, cwd), Home: home, Getenv: os.Getenv})
+	if lerr != nil {
+		return loadedConfig{cfg: config.Default(), err: lerr}
+	}
+	return loadedConfig{cfg: cfg}
+}
+
+// repoRoot returns the absolute toplevel of the repo containing dir, or "" when
+// dir is not inside a git worktree.
+func repoRoot(ctx context.Context, dir string) string {
+	root, err := git.NewClient(git.ExecRunner{}).Toplevel(ctx, dir)
+	if err != nil {
+		return ""
+	}
+	return root
 }
 
 func newRoot() *cobra.Command {
@@ -48,8 +88,9 @@ func newRoot() *cobra.Command {
 
 // rewriteArgs implements the default-subcommand routing cobra lacks: bare `tp`
 // opens the dashboard (ls until the TUI lands), and a known branch type as the
-// first positional rewrites to `new <type> <task>`.
-func rewriteArgs(args []string, known map[string]bool) []string {
+// first positional rewrites to `new <type> <task>`. It consults the resolved
+// config's branch types, so a repo-defined type routes correctly.
+func rewriteArgs(args []string, known map[string]bool, cfg config.Config) []string {
 	if len(args) == 0 {
 		return []string{"ls"} // placeholder for the dashboard (task 8)
 	}
@@ -57,18 +98,21 @@ func rewriteArgs(args []string, known map[string]bool) []string {
 	if strings.HasPrefix(first, "-") || known[first] {
 		return args
 	}
-	if config.Default().IsType(first) {
+	if cfg.IsType(first) {
 		return append([]string{"new"}, args...)
 	}
 	return args
 }
 
 func openService(cmd *cobra.Command) (*core.Service, error) {
+	if loaded.err != nil {
+		return nil, exit.Wrap(exit.Usage, "bad_config", "invalid treepi config", loaded.err)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	return core.Open(cmd.Context(), cwd, config.Default(), clock.Real{}, cmd.ErrOrStderr())
+	return core.Open(cmd.Context(), cwd, loaded.cfg, clock.Real{}, cmd.ErrOrStderr())
 }
 
 func jsonMode(cmd *cobra.Command) bool {
