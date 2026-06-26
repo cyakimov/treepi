@@ -34,6 +34,26 @@ func TestAcquireLeaseExclusive(t *testing.T) {
 	}
 }
 
+func TestWriteLeaseOverwritesStaleFile(t *testing.T) {
+	s := newTestStore(t)
+	// AcquireLease leaves a file behind (Reconcile only clears the manifest
+	// mirror), so claim/renew must be able to overwrite it.
+	if err := s.AcquireLease("x", &Lease{Owner: "old", PID: 1, Host: "h", Expires: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	durable := &Lease{Owner: "new", PID: 0, Host: "h", Expires: time.Now().Add(time.Hour)}
+	if err := s.WriteLease("x", durable); err != nil {
+		t.Fatalf("WriteLease over a stale file: %v", err)
+	}
+	got, err := s.ReadLease("x")
+	if err != nil || got == nil {
+		t.Fatalf("read: %+v %v", got, err)
+	}
+	if got.Owner != "new" || got.PID != 0 {
+		t.Errorf("lease not overwritten: %+v", got)
+	}
+}
+
 func TestAcquireLeaseConcurrent(t *testing.T) {
 	s := newTestStore(t)
 	const n = 24

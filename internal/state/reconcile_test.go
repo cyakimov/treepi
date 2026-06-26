@@ -71,6 +71,30 @@ func TestReconcileClearsExpiredLease(t *testing.T) {
 	}
 }
 
+func TestReconcileKeepsDurableLeaseThenClearsExpired(t *testing.T) {
+	live := DefaultLiveness("this-host")
+	m := newManifest()
+	// A PID=0 (durable / claim heartbeat) lease: the claiming process has exited,
+	// so it must NOT be probed - only TTL frees it.
+	m.Tasks["x"] = &Task{Name: "x", Path: "/p/x", Status: StatusReady,
+		Lease: &Lease{Owner: "agent", PID: 0, Host: "this-host", Expires: now.Add(time.Hour)}}
+	views := []WorktreeView{{Path: "/p/x"}}
+	if changed := Reconcile(m, views, now, live); changed {
+		t.Fatal("a durable unexpired lease must survive reconcile")
+	}
+	if m.Tasks["x"].Lease == nil {
+		t.Fatal("durable lease was wrongly cleared")
+	}
+	// Once it expires, TTL frees it.
+	m.Tasks["x"].Lease.Expires = now.Add(-time.Minute)
+	if changed := Reconcile(m, views, now, live); !changed {
+		t.Fatal("expected the expired durable lease to be cleared")
+	}
+	if m.Tasks["x"].Lease != nil {
+		t.Fatal("expired durable lease must be cleared")
+	}
+}
+
 func TestReconcileKeepsCrossHostLease(t *testing.T) {
 	m := newManifest()
 	m.Tasks["x"] = &Task{Name: "x", Path: "/p/x", Status: StatusReady,

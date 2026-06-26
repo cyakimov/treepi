@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,6 +36,28 @@ func (s *Store) AcquireLease(task string, l *Lease) error {
 		return err
 	}
 	return f.Sync()
+}
+
+// WriteLease atomically creates-or-overwrites the lease file for task via a temp
+// file + fsync + rename, so a concurrent reader never sees a torn lease and an
+// expired-but-not-removed file is cleanly replaced. Unlike AcquireLease it does
+// NOT guard with O_EXCL: serialization is the caller's flock plus the manifest
+// generation-CAS, with the manifest as the logical source of truth. Used by
+// claim (durable lease) and renew (heartbeat).
+func (s *Store) WriteLease(task string, l *Lease) error {
+	b, err := json.Marshal(l)
+	if err != nil {
+		return err
+	}
+	path := s.leasePath(task)
+	tmp := path + ".tmp"
+	if err := writeFileSync(tmp, b); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("state: commit lease: %w", err)
+	}
+	return nil
 }
 
 // ReleaseLease removes the lease file (idempotent).
