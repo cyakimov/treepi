@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cyakimov/treepi/internal/git"
 	"github.com/cyakimov/treepi/internal/state"
@@ -19,8 +20,20 @@ func (s *Service) executor() state.Executor { return gitExecutor{g: s.git, root:
 
 func (e gitExecutor) Apply(ctx context.Context, st state.Step) error {
 	switch st.Kind {
-	case state.StepSetRef, state.StepRewindTrunk:
+	case state.StepSetRef:
 		// Restore Ref to From, only if it still points at To (CAS).
+		return e.g.UpdateRefCAS(ctx, e.root, st.Ref, st.From, st.To)
+	case state.StepRewindTrunk:
+		// If trunk is checked out, reset that worktree so HEAD+index+files move
+		// together (a bare update-ref would corrupt it); else CAS the ref.
+		wts, err := e.g.WorktreeList(ctx, e.root)
+		if err != nil {
+			return err
+		}
+		branch := strings.TrimPrefix(st.Ref, "refs/heads/")
+		if wt, ok := git.FindWorktreeOnBranch(wts, branch); ok {
+			return e.g.ResetHard(ctx, wt.Path, st.From)
+		}
 		return e.g.UpdateRefCAS(ctx, e.root, st.Ref, st.From, st.To)
 	case state.StepCreateRef:
 		return e.g.SetRef(ctx, e.root, st.Ref, st.From)

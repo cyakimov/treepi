@@ -59,7 +59,7 @@ func (s *Service) Sync(ctx context.Context, task string) (*TaskInfo, error) {
 
 	if rerr := s.git.Rebase(ctx, dir, base); rerr != nil {
 		if errors.Is(rerr, git.ErrConflict) {
-			return s.syncConflict(ctx, task, dir, ident)
+			return nil, s.markConflict(ctx, task, dir, ident)
 		}
 		return nil, exit.Wrap(exit.Internal, "rebase_failed", "rebase failed", rerr)
 	}
@@ -92,9 +92,10 @@ func (s *Service) Sync(ctx context.Context, task string) (*TaskInfo, error) {
 	return info, nil
 }
 
-// syncConflict captures the conflicted tree, aborts the rebase to a clean state,
-// and marks the task needs-resolution.
-func (s *Service) syncConflict(ctx context.Context, task, dir string, ident git.Identity) (*TaskInfo, error) {
+// markConflict captures the conflicted tree, aborts the rebase to a clean state,
+// and marks the task needs-resolution (conflict-as-data). Shared by sync and
+// merge. Returns the conflict error.
+func (s *Service) markConflict(ctx context.Context, task, dir string, ident git.Identity) error {
 	_, _, _ = s.git.Snapshot(ctx, dir, state.ConflictRef(task, s.clock.NewID()), ident, s.cfg.IncludeIgnored)
 	_ = s.git.RebaseAbort(ctx, dir)
 	_ = s.store.Do(ctx, nil, func(tx *state.Txn) error {
@@ -104,6 +105,6 @@ func (s *Service) syncConflict(ctx context.Context, task, dir string, ident git.
 		}
 		return nil
 	})
-	return nil, exit.New(exit.Conflict, "conflict",
+	return exit.New(exit.Conflict, "conflict",
 		"rebase hit conflicts; tree left clean, task marked needs-resolution")
 }

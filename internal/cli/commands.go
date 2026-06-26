@@ -83,6 +83,92 @@ func whereCmd() *cobra.Command {
 	}
 }
 
+func mergeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "merge <task>",
+		Short: "Rebase, verify, and fast-forward a task into trunk, then clean up",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "merge", err)
+			}
+			res, err := svc.Merge(cmd.Context(), args[0])
+			if err != nil {
+				return fail(cmd, "merge", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "merge", res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "merged %s into %s\n", res.Branch, res.Trunk)
+			return nil
+		},
+	}
+}
+
+func rmCmd() *cobra.Command {
+	var force bool
+	c := &cobra.Command{
+		Use:   "rm <task>",
+		Short: "Remove a task's worktree and branch (snapshotted first)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "rm", err)
+			}
+			res, err := svc.Remove(cmd.Context(), args[0], force)
+			if err != nil {
+				return fail(cmd, "rm", err)
+			}
+			if jsonMode(cmd) {
+				return emitJSON(cmd.OutOrStdout(), "rm", res)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed %s (%s)\n", res.Task, res.Branch)
+			return nil
+		},
+	}
+	c.Flags().BoolVarP(&force, "force", "f", false, "remove a dirty or leased worktree")
+	return c
+}
+
+func runCmd() *cobra.Command {
+	var all bool
+	c := &cobra.Command{
+		Use:                   "run <task> -- <cmd>...   (or --all -- <cmd>...)",
+		Short:                 "Run a command in one or all worktrees",
+		DisableFlagsInUseLine: true,
+		Args:                  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			task, argv := "", args
+			if dash := cmd.ArgsLenAtDash(); dash >= 0 {
+				pre := args[:dash]
+				argv = args[dash:]
+				if !all && len(pre) >= 1 {
+					task = pre[0]
+				}
+			} else if !all && len(args) >= 1 {
+				task, argv = args[0], args[1:]
+			}
+			svc, err := openService(cmd)
+			if err != nil {
+				return fail(cmd, "run", err)
+			}
+			res, runErr := svc.Run(cmd.Context(), task, all, argv)
+			if jsonMode(cmd) {
+				_ = emitJSON(cmd.OutOrStdout(), "run", res)
+				return runErr
+			}
+			if runErr != nil {
+				return fail(cmd, "run", runErr)
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&all, "all", false, "run in every worktree")
+	return c
+}
+
 func syncCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "sync <task>",

@@ -151,6 +151,110 @@ func TestIntegrationNewThenUndo(t *testing.T) {
 	}
 }
 
+func gitTip(t *testing.T, dir, rev string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", rev)
+	cmd.Dir = dir
+	cmd.Env = gitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("rev-parse %s: %v", rev, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// advanceTask commits on a task's worktree so it is one commit ahead of trunk.
+func mergeSetup(t *testing.T) (string, *Service, *TaskInfo) {
+	t.Helper()
+	dir := newRepo(t)
+	svc, err := Open(context.Background(), dir, config.Default(), clock.Real{}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := svc.New(context.Background(), "feat", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, info.Path, "commit", "--allow-empty", "-q", "-m", "x work")
+	return dir, svc, info
+}
+
+func TestIntegrationMergeTrunkCheckedOutStaysClean(t *testing.T) {
+	dir, svc, info := mergeSetup(t)
+	ctx := context.Background()
+	featTip := gitTip(t, info.Path, "HEAD")
+
+	if _, err := svc.Merge(ctx, "x"); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	// Trunk fast-forwarded to the feature tip.
+	if got := gitTip(t, dir, "main"); got != featTip {
+		t.Fatalf("main = %s, want feature tip %s", got, featTip)
+	}
+	// C3: the checked-out trunk worktree is clean (no phantom modifications).
+	if !gitOK(dir, "diff", "--quiet") || !gitOK(dir, "diff", "--cached", "--quiet") {
+		t.Fatal("trunk worktree is dirty after merge (phantom modifications)")
+	}
+	// Worktree, branch, and manifest entry are gone.
+	if _, err := os.Stat(info.Path); !os.IsNotExist(err) {
+		t.Fatal("feature worktree still present")
+	}
+	if gitOK(dir, "rev-parse", "--verify", "--quiet", "refs/heads/feat/x") {
+		t.Fatal("feat/x branch still exists")
+	}
+	if list, _ := svc.List(ctx, false); len(list) != 0 {
+		t.Fatalf("manifest not empty: %d", len(list))
+	}
+}
+
+func TestIntegrationMergeTrunkNotCheckedOut(t *testing.T) {
+	dir, svc, info := mergeSetup(t)
+	ctx := context.Background()
+	featTip := gitTip(t, info.Path, "HEAD")
+	// Detach the main worktree so trunk is not checked out anywhere.
+	run(t, dir, "switch", "--detach", "-q")
+
+	if _, err := svc.Merge(ctx, "x"); err != nil {
+		t.Fatalf("merge (not checked out): %v", err)
+	}
+	if got := gitTip(t, dir, "refs/heads/main"); got != featTip {
+		t.Fatalf("main ref = %s, want %s (CAS ff)", got, featTip)
+	}
+}
+
+func TestIntegrationMergeThenUndoRewindsTrunk(t *testing.T) {
+	dir, svc, info := mergeSetup(t)
+	ctx := context.Background()
+	preMain := gitTip(t, dir, "main")
+
+	if _, err := svc.Merge(ctx, "x"); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	res, err := svc.Undo(ctx)
+	if err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if !res.Reverted || res.Op != "merge" {
+		t.Fatalf("undo result = %+v", res)
+	}
+	// Trunk rewound, the checked-out trunk worktree clean, branch + worktree + task back.
+	if got := gitTip(t, dir, "main"); got != preMain {
+		t.Fatalf("main = %s, want pre-merge %s", got, preMain)
+	}
+	if !gitOK(dir, "diff", "--quiet") {
+		t.Fatal("trunk worktree dirty after undo (rewind corrupted it)")
+	}
+	if !gitOK(dir, "rev-parse", "--verify", "--quiet", "refs/heads/feat/x") {
+		t.Fatal("feat/x branch not restored")
+	}
+	if _, err := os.Stat(info.Path); err != nil {
+		t.Fatalf("feature worktree not restored: %v", err)
+	}
+	if list, _ := svc.List(ctx, false); len(list) != 1 {
+		t.Fatalf("task not restored to manifest: %d", len(list))
+	}
+}
+
 func TestIntegrationSyncRebasesOntoTrunk(t *testing.T) {
 	dir := newRepo(t)
 	ctx := context.Background()
