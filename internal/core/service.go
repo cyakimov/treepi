@@ -47,10 +47,11 @@ type Service struct {
 	git   *git.Client
 	repo  *repo.Repo
 	store *state.Store
-	cfg   config.Config
-	clock Clock
-	warn  io.Writer
-	hooks HookRunner
+	cfg      config.Config
+	clock    Clock
+	warn     io.Writer
+	hooks    HookRunner
+	warnings []string
 }
 
 // Open discovers the repo containing dir, resolves the trunk, and opens the

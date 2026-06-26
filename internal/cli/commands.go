@@ -27,7 +27,7 @@ func newCmd() *cobra.Command {
 				return fail(cmd, "new", err)
 			}
 			if jsonMode(cmd) {
-				return emitJSON(cmd.OutOrStdout(), "new", info)
+				return emitJSONWarn(cmd.OutOrStdout(), "new", info, svc.Warnings())
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "created %s at %s (slot %d)\n", info.Branch, info.Path, info.Slot)
 			return nil
@@ -184,7 +184,7 @@ func syncCmd() *cobra.Command {
 				return fail(cmd, "sync", err)
 			}
 			if jsonMode(cmd) {
-				return emitJSON(cmd.OutOrStdout(), "sync", info)
+				return emitJSONWarn(cmd.OutOrStdout(), "sync", info, svc.Warnings())
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "synced %s onto %s\n", info.Task, svc.Repo().Trunk)
 			return nil

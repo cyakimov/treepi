@@ -29,9 +29,14 @@ type errEnv struct {
 }
 
 func emitJSON(w io.Writer, op string, data any) error {
+	return emitJSONWarn(w, op, data, nil)
+}
+
+// emitJSONWarn emits the success envelope including any operation warnings.
+func emitJSONWarn(w io.Writer, op string, data any, warnings []string) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(envelope{TreepiVersion: version, Op: op, OK: true, Data: data})
+	return enc.Encode(envelope{TreepiVersion: version, Op: op, OK: true, Data: data, Warnings: warnings})
 }
 
 // fail renders err (a JSON error envelope to stdout in --json mode, otherwise a

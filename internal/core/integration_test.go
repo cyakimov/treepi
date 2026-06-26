@@ -47,6 +47,13 @@ func newRepo(t *testing.T) string {
 	// hermetic config for the whole process so core's git client never signs.
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	// Give the whole process a git identity: core's in-process git client uses
+	// os.Environ(), so a real rebase (sync/merge onto an advanced trunk) needs a
+	// committer even though global config is nulled.
+	t.Setenv("GIT_AUTHOR_NAME", "treepi-test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@treepi")
+	t.Setenv("GIT_COMMITTER_NAME", "treepi-test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@treepi")
 	dir := t.TempDir()
 	run(t, dir, "init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x\n"), 0o644); err != nil {

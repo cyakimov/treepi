@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/exit"
+	"github.com/cyakimov/treepi/internal/git"
 	"github.com/cyakimov/treepi/internal/repo"
 	"github.com/cyakimov/treepi/internal/state"
 )
@@ -81,10 +83,32 @@ func (s *Service) New(ctx context.Context, typ, task string) (*TaskInfo, error) 
 	}
 	_ = s.store.AcquireLease(task, lease) // durable creation guard
 
-	// Phase B (unlocked, slow): create the worktree. Hooks land at task 7.
+	// Phase B (unlocked, slow): create the worktree, then run post_create.
 	if err := s.git.WorktreeAdd(ctx, s.repo.Root, path, branch, base); err != nil {
 		s.rollbackNew(ctx, task, branch, path, opID)
 		return nil, exit.Wrap(exit.Internal, "worktree_add_failed", "could not create worktree", err)
+	}
+
+	// git worktree add does not initialize submodules; warn so a post_create hook
+	// can (TREEPI_HAS_SUBMODULES tells the hook too).
+	subs, _ := s.git.UninitializedSubmodules(ctx, path)
+	if len(subs) > 0 {
+		s.warnf("%d uninitialized submodule(s) in %s; initialize them in a post_create hook", len(subs), task)
+	}
+
+	hc := s.baseHookContext(ctx, config.EventPostCreate, task, typ, branch, path, slot)
+	hc.Op, hc.HasSubmodules = opID, len(subs) > 0
+	extras, spec, herr := s.fireHook(ctx, hc)
+	if herr != nil {
+		if spec.OnFailure == config.OnFailureWarn {
+			s.warnf("post_create hook failed (worktree kept): %v", herr)
+		} else {
+			// rollback/abort: snapshot any partial work, then remove the tree+branch.
+			ident := git.Identity{Name: defaultOwner()}
+			_, _, _ = s.git.Snapshot(ctx, path, state.SnapshotRef(task, "posthookfail", s.clock.NewID()), ident, s.cfg.IncludeIgnored)
+			s.rollbackNew(ctx, task, branch, path, opID)
+			return nil, exit.Wrap(exit.HookAbort, "post_create_failed", "post_create hook failed; worktree rolled back", herr)
+		}
 	}
 
 	// Phase C (locked, fast): publish.
@@ -96,6 +120,7 @@ func (s *Service) New(ctx context.Context, typ, task string) (*TaskInfo, error) 
 		}
 		t.Status = state.StatusReady
 		t.Lease = nil // creation guard released; only `claim` keeps a durable lease
+		t.Extras = mergeExtras(t.Extras, extras)
 		tx.AppendCommit(opID, "ready")
 		tx.MarkDirty()
 		info = taskInfo(t)

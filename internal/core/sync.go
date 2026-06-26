@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cyakimov/treepi/internal/config"
 	"github.com/cyakimov/treepi/internal/exit"
 	"github.com/cyakimov/treepi/internal/git"
 	"github.com/cyakimov/treepi/internal/state"
@@ -65,6 +66,18 @@ func (s *Service) Sync(ctx context.Context, task string) (*TaskInfo, error) {
 	}
 
 	opID := s.clock.NewID()
+
+	// post_sync hook. The rebase is already durable, so any failure is a warning
+	// (a configured abort/rollback degrades to warn - there is nothing safe to
+	// undo here).
+	newHead, _ := s.git.ResolveRef(ctx, dir, "HEAD")
+	hc := s.baseHookContext(ctx, config.EventPostSync, t.Name, t.Type, branch, dir, t.Slot)
+	hc.Op, hc.OldHead, hc.NewHead = opID, preOID, newHead
+	extras, _, herr := s.fireHook(ctx, hc)
+	if herr != nil {
+		s.warnf("post_sync hook failed (rebase kept, not rolled back): %v", herr)
+	}
+
 	var info *TaskInfo
 	if err := s.store.Do(ctx, nil, func(tx *state.Txn) error {
 		t := tx.Manifest().Tasks[task]
@@ -78,6 +91,7 @@ func (s *Service) Sync(ctx context.Context, task string) (*TaskInfo, error) {
 		}
 		t.Status = state.StatusReady
 		t.BaseSha = base
+		t.Extras = mergeExtras(t.Extras, extras)
 		tx.AppendBegin(&state.Op{
 			ID: opID, Kind: "sync", StartedAt: s.clock.Now(), Phase: "rebased",
 			Steps: steps, TasksBefore: map[string]*state.Task{task: &before},
