@@ -1,0 +1,35 @@
+# treepi project configuration - committed and shared by everyone working on this
+# repo. All keys are optional; treepi runs zero-config with the defaults shown
+# below. See docs/HOOKS.md for the lifecycle hooks.
+
+[branch]
+# trunk    = "main"            # default: origin/HEAD, else "main"
+# template = "{type}/{task}"   # tokens: {type} {task}; an empty type collapses to "{task}"
+
+[placement]
+# base_dir = "{repo}.worktrees"    # tokens: {repo} (abs path), {repo_dir} (basename)
+
+[merge]
+# verify = ["just", "build"]       # argv run on the rebased tip before merge (exit 8 on failure)
+
+[snapshot]
+# include_ignored = [".env", ".env.local"]   # gitignored paths to fold into the pre-destructive snapshot
+
+# Lifecycle hooks turn a bare worktree into a runnable environment.
+# command is an argv array (no implicit shell). on_failure: rollback | abort | warn
+# (defaults: post_create=rollback, pre_merge=abort, others=warn).
+[hooks.post_create]
+command = ["bash", ".treepi/hooks/post-create.sh"]
+timeout = "5m"
+
+# [hooks.post_sync]
+# command = ["bash", ".treepi/hooks/post-sync.sh"]
+
+# [hooks.pre_merge]
+# command = ["bash", ".treepi/hooks/pre-merge.sh"]
+
+# [hooks.post_merge]
+# command = ["bash", ".treepi/hooks/post-merge.sh"]
+
+# [hooks.pre_remove]
+# command = ["bash", ".treepi/hooks/pre-remove.sh"]

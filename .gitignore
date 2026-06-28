@@ -1,0 +1,10 @@
+# build output
+/bin/
+/dist/
+
+# test / coverage artifacts
+*.out
+*.test
+
+# per-machine config override (see docs)
+.treepi.local.toml

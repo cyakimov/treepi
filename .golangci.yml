@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # Writes to stdout/stderr in the CLI/presenter layer cannot meaningfully
+      # recover from an error; excluding the fmt.Fprint family keeps errcheck
+      # strict everywhere else.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
