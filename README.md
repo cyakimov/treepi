@@ -66,7 +66,7 @@ treepi ls                   # static, scriptable table (add --json to script it)
 tp cd login-fix             # cd into a tree by name (needs the shell wrapper)
 treepi sync login-fix       # rebase the tree onto the latest trunk
 treepi merge login-fix      # rebase, verify, fast-forward into trunk, then clean up
-treepi rm login-fix         # discard a tree (snapshotted first; undo-able)
+treepi rm login-fix api-fix # discard one or more trees (snapshotted first; undo-able)
 treepi run login-fix -- cmd # run a command in a tree; `run --all` fans out
 treepi undo                 # reverse the last mutating operation
 ```

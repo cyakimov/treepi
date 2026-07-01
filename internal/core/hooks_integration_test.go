@@ -202,7 +202,7 @@ func TestIntegrationPreRemoveAbort(t *testing.T) {
 	if _, err := svc.New(ctx, "feat", "demo"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.Remove(ctx, "demo", false)
+	_, err = svc.Remove(ctx, []string{"demo"}, false)
 	if exit.CodeOf(err) != exit.HookAbort {
 		t.Fatalf("exit = %d, want %d (HookAbort); err=%v", exit.CodeOf(err), exit.HookAbort, err)
 	}

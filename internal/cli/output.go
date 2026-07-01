@@ -39,21 +39,39 @@ func emitJSONWarn(w io.Writer, op string, data any, warnings []string) error {
 	return enc.Encode(envelope{TreepiVersion: version, Op: op, OK: true, Data: data, Warnings: warnings})
 }
 
+// emitJSONErr emits one envelope for a best-effort command: on success it is the
+// ok:true envelope (data + warnings); on failure it reports ok:false while still
+// carrying data - what did succeed - alongside the error.
+func emitJSONErr(w io.Writer, op string, data any, warnings []string, err error) error {
+	if err == nil {
+		return emitJSONWarn(w, op, data, warnings)
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(envelope{TreepiVersion: version, Op: op, OK: false, Data: data, Warnings: warnings, Error: errToEnv(err)})
+}
+
+// errToEnv maps an error to the JSON error envelope: a typed *exit.Error
+// contributes its stable Reason as the code, otherwise the code is "internal".
+func errToEnv(err error) *errEnv {
+	code, msg := "internal", err.Error()
+	var te *exit.Error
+	if errors.As(err, &te) {
+		if te.Reason != "" {
+			code = te.Reason
+		}
+		msg = te.Error()
+	}
+	return &errEnv{Code: code, Message: msg}
+}
+
 // fail renders err (a JSON error envelope to stdout in --json mode, otherwise a
 // line to stderr) and returns it so main can map the exit code.
 func fail(cmd *cobra.Command, op string, err error) error {
 	if jsonMode(cmd) {
-		code, msg := "internal", err.Error()
-		var te *exit.Error
-		if errors.As(err, &te) {
-			if te.Reason != "" {
-				code = te.Reason
-			}
-			msg = te.Error()
-		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(envelope{TreepiVersion: version, Op: op, OK: false, Error: &errEnv{Code: code, Message: msg}})
+		_ = enc.Encode(envelope{TreepiVersion: version, Op: op, OK: false, Error: errToEnv(err)})
 	} else {
 		fmt.Fprintln(cmd.ErrOrStderr(), "treepi: "+err.Error())
 	}

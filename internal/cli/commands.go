@@ -135,22 +135,25 @@ func mergeCmd() *cobra.Command {
 func rmCmd() *cobra.Command {
 	var force bool
 	c := &cobra.Command{
-		Use:   "rm <task>",
-		Short: "Remove a task's worktree and branch (snapshotted first)",
-		Args:  cobra.ExactArgs(1),
+		Use:   "rm <task>...",
+		Short: "Remove one or more worktrees and their branches (snapshotted first)",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := openService(cmd)
 			if err != nil {
 				return fail(cmd, "rm", err)
 			}
-			res, err := svc.Remove(cmd.Context(), args[0], force)
+			results, err := svc.Remove(cmd.Context(), args, force)
+			if jsonMode(cmd) {
+				_ = emitJSONErr(cmd.OutOrStdout(), "rm", results, svc.Warnings(), err)
+				return err
+			}
+			for _, res := range results {
+				fmt.Fprintf(cmd.OutOrStdout(), "removed %s (%s)\n", res.Task, res.Branch)
+			}
 			if err != nil {
 				return fail(cmd, "rm", err)
 			}
-			if jsonMode(cmd) {
-				return emitJSONWarn(cmd.OutOrStdout(), "rm", res, svc.Warnings())
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed %s (%s)\n", res.Task, res.Branch)
 			return nil
 		},
 	}
