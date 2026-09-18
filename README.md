@@ -75,6 +75,12 @@ The branch name comes from `[branch] template` (default `{type}/{task}`): the ty
 
 Every command accepts `--json` (a stable `{treepi_version, op, ok, data, warnings, error}` envelope) and returns a documented exit code, so a caller branches on the outcome structurally without parsing prose.
 
+`treepi rm` processes each distinct task name in order, so a missing, dirty, locked, or hook-rejected task does not prevent eligible siblings from being removed.
+It exits nonzero if any task fails, and one `treepi undo` restores the worktrees changed by the batch.
+With `--json`, one task retains the original `{task, branch}` data object; multiple names return `data: {removed: [...], failed: [{task, code, message}]}`.
+The batch envelope has `ok: false` and `error.code: "rm_failed"` when any task fails.
+Warnings about gitignored files excluded from the snapshot appear on stderr and in `warnings`.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).

@@ -147,6 +147,27 @@ func TestIntegrationSnapshotNoConfiguredIdentity(t *testing.T) {
 	}
 }
 
+func TestIntegrationIgnoredPathsPreserveExactNames(t *testing.T) {
+	dir, c := newTestRepo(t)
+	write(t, dir, ".gitignore", "*.secret\n")
+	mustGit(t, dir, idEnv, "add", ".gitignore")
+	mustGit(t, dir, idEnv, "commit", "-q", "-m", "ignore secrets")
+	name := " leading.secret"
+	write(t, dir, name, "secret\n")
+	paths, err := c.IgnoredPaths(context.Background(), dir)
+	if err != nil || len(paths) != 1 || paths[0] != name {
+		t.Fatalf("ignored paths = %q, error=%v", paths, err)
+	}
+	oid, created, err := c.Snapshot(context.Background(), dir, "refs/treepi/snapshots/test/exact", Identity{}, []string{"*.secret"})
+	if err != nil || !created {
+		t.Fatalf("snapshot: oid=%q created=%v error=%v", oid, created, err)
+	}
+	captured, err := c.SnapshotPaths(context.Background(), dir, oid)
+	if err != nil || !captured[name] {
+		t.Fatalf("snapshot paths = %+v, error=%v", captured, err)
+	}
+}
+
 func TestIntegrationFastForwardCAS(t *testing.T) {
 	dir, c := newTestRepo(t)
 	ctx := context.Background()

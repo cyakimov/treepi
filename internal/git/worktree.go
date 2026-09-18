@@ -80,6 +80,11 @@ func (c *Client) WorktreeAdd(ctx context.Context, dir, path, branch, startPoint 
 	return c.runVoid(ctx, dir, "worktree", "add", "-b", branch, path, startPoint)
 }
 
+// WorktreeAddExisting checks out an existing branch in a new worktree.
+func (c *Client) WorktreeAddExisting(ctx context.Context, dir, path, branch string) error {
+	return c.runVoid(ctx, dir, "worktree", "add", path, branch)
+}
+
 // WorktreeRemove removes the worktree at path. force allows removal of a dirty
 // or locked tree. Run from a directory that is not inside the target.
 func (c *Client) WorktreeRemove(ctx context.Context, dir, path string, force bool) error {

@@ -2,6 +2,10 @@ package core
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cyakimov/treepi/internal/git"
@@ -44,13 +48,46 @@ func (e gitExecutor) Apply(ctx context.Context, st state.Step) error {
 		_ = e.g.WorktreeRemove(ctx, e.root, st.Path, true)
 		return e.g.WorktreePrune(ctx, e.root)
 	case state.StepAddWorktree:
-		return e.g.WorktreeAdd(ctx, e.root, st.Path, st.Branch, st.From)
+		return e.addWorktree(ctx, st)
 	case state.StepRestoreTree:
 		return e.g.RestoreWorktreeFrom(ctx, st.Path, st.Snapshot)
 	case state.StepResetHard:
 		return e.g.ResetHard(ctx, st.Path, st.From)
 	default:
 		return nil
+	}
+}
+
+func (e gitExecutor) addWorktree(ctx context.Context, st state.Step) error {
+	wts, err := e.g.WorktreeList(ctx, e.root)
+	if err != nil {
+		return err
+	}
+	for _, wt := range wts {
+		if filepath.Clean(wt.Path) == filepath.Clean(st.Path) {
+			if wt.Branch == "refs/heads/"+st.Branch && wt.Head == st.From {
+				if _, err := os.Stat(st.Path); err == nil {
+					return nil
+				}
+			}
+			return fmt.Errorf("cannot restore %s: target worktree differs from the recorded branch or commit", st.Path)
+		}
+	}
+	if _, err := os.Stat(st.Path); err == nil {
+		return fmt.Errorf("cannot restore %s: target path already exists", st.Path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	oid, err := e.g.ResolveRef(ctx, e.root, "refs/heads/"+st.Branch)
+	switch {
+	case err == nil && oid == st.From:
+		return e.g.WorktreeAddExisting(ctx, e.root, st.Path, st.Branch)
+	case err == nil:
+		return fmt.Errorf("cannot restore %s: branch %s moved", st.Path, st.Branch)
+	case errors.Is(err, git.ErrRefNotFound):
+		return e.g.WorktreeAdd(ctx, e.root, st.Path, st.Branch, st.From)
+	default:
+		return err
 	}
 }
 

@@ -30,7 +30,7 @@ func TestIntegrationRmMany(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rm a b: %v", err)
 	}
-	if len(results) != 2 {
+	if len(results.Removed) != 2 {
 		t.Fatalf("results = %+v, want 2", results)
 	}
 	for _, task := range []string{"a", "b"} {
@@ -66,7 +66,7 @@ func TestIntegrationRmBestEffort(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "bogus") {
 		t.Errorf("error %v does not name the failed task", err)
 	}
-	if len(results) != 2 {
+	if len(results.Removed) != 2 {
 		t.Fatalf("results = %+v, want 2 (a and c removed)", results)
 	}
 	for _, task := range []string{"a", "c"} {
@@ -126,7 +126,7 @@ func TestIntegrationRmDedupe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rm demo demo: %v", err)
 	}
-	if len(results) != 1 {
+	if len(results.Removed) != 1 {
 		t.Fatalf("results = %+v, want 1 (deduped)", results)
 	}
 	res, err := svc.Undo(ctx)
@@ -184,5 +184,242 @@ func TestIntegrationRmSingleUnknownIsVerbatim(t *testing.T) {
 	}
 	if err == nil || err.Error() != "unknown task: bogus" {
 		t.Fatalf("error = %v, want verbatim \"unknown task: bogus\"", err)
+	}
+}
+
+func TestIntegrationRmLockedTaskDoesNotBlockSibling(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	for _, name := range []string{"locked", "ready"} {
+		if _, err := svc.New(ctx, "feat", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(t, dir, "worktree", "lock", worktreePath(dir, "locked"))
+	result, err := svc.Remove(ctx, []string{"locked", "ready"}, true)
+	if exit.CodeOf(err) != exit.Refused || len(result.Removed) != 1 || result.Removed[0].Task != "ready" {
+		t.Fatalf("remove result = %+v, error = %v", result, err)
+	}
+	if len(result.Failed) != 1 || result.Failed[0].Code != "worktree_locked" {
+		t.Fatalf("failures = %+v", result.Failed)
+	}
+	if _, err := os.Stat(worktreePath(dir, "locked")); err != nil {
+		t.Fatalf("locked worktree changed: %v", err)
+	}
+	if _, err := os.Stat(worktreePath(dir, "ready")); !os.IsNotExist(err) {
+		t.Fatalf("ready worktree remains: %v", err)
+	}
+	if _, err := svc.Undo(ctx); err != nil {
+		t.Fatalf("undo valid removal: %v", err)
+	}
+	for _, name := range []string{"locked", "ready"} {
+		if _, err := os.Stat(worktreePath(dir, name)); err != nil {
+			t.Errorf("%s missing after undo: %v", name, err)
+		}
+	}
+}
+
+func TestIntegrationRmSnapshotFailureLeavesWorkIntact(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	if _, err := svc.New(ctx, "feat", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	svc.cfg.IncludeIgnored = []string{"missing-file"}
+	scratch := filepath.Join(worktreePath(dir, "demo"), "scratch.txt")
+	if err := os.WriteFile(scratch, []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Remove(ctx, []string{"demo"}, true)
+	if exit.CodeOf(err) != exit.Internal || len(result.Removed) != 0 || result.Failed[0].Code != "snapshot_failed" {
+		t.Fatalf("remove result = %+v, error = %v", result, err)
+	}
+	if _, err := os.Stat(scratch); err != nil {
+		t.Fatalf("unsnapshotted work was removed: %v", err)
+	}
+	if list, err := svc.List(ctx, false); err != nil || len(list) != 1 {
+		t.Fatalf("manifest changed: list=%+v error=%v", list, err)
+	}
+}
+
+func TestIntegrationRmIgnoredFileWarningAndRecovery(t *testing.T) {
+	for _, included := range []bool{false, true} {
+		name := "excluded"
+		if included {
+			name = "included"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := newRepo(t)
+			if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("secret.txt\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run(t, dir, "add", ".gitignore")
+			run(t, dir, "commit", "-q", "-m", "ignore secret")
+			ctx := context.Background()
+			svc := openSvc(t, ctx, dir)
+			if _, err := svc.New(ctx, "feat", "demo"); err != nil {
+				t.Fatal(err)
+			}
+			secret := filepath.Join(worktreePath(dir, "demo"), "secret.txt")
+			if err := os.WriteFile(secret, []byte("secret\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if included {
+				svc.cfg.IncludeIgnored = []string{"secret.txt"}
+			}
+			if _, err := svc.Remove(ctx, []string{"demo"}, true); err != nil {
+				t.Fatal(err)
+			}
+			if (len(svc.Warnings()) > 0) == included {
+				t.Fatalf("warnings = %+v, included = %v", svc.Warnings(), included)
+			}
+			if _, err := svc.Undo(ctx); err != nil {
+				t.Fatal(err)
+			}
+			_, statErr := os.Stat(secret)
+			if included && statErr != nil || !included && !os.IsNotExist(statErr) {
+				t.Fatalf("secret after undo = %v, included = %v", statErr, included)
+			}
+		})
+	}
+}
+
+func TestIntegrationRmOrphanedWorktree(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	if _, err := svc.New(ctx, "feat", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(worktreePath(dir, "demo")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Remove(ctx, []string{"demo"}, false)
+	if err != nil || len(result.Removed) != 1 {
+		t.Fatalf("remove orphan: result=%+v error=%v", result, err)
+	}
+	if _, err := svc.Undo(ctx); err != nil {
+		t.Fatalf("undo orphan removal: %v", err)
+	}
+	if _, err := os.Stat(worktreePath(dir, "demo")); err != nil {
+		t.Fatalf("orphan worktree not restored: %v", err)
+	}
+}
+
+func TestIntegrationRmBranchDeleteFailureRestoresTree(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	if _, err := svc.New(ctx, "feat", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(worktreePath(dir, "demo"), "scratch.txt")
+	if err := os.WriteFile(scratch, []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(dir, ".git", "hooks", "reference-transaction")
+	script := "#!/bin/sh\nif [ \"$1\" = prepared ]; then\n  while read old new ref; do\n    if [ \"$ref\" = refs/heads/feat/demo ] && [ \"$new\" = 0000000000000000000000000000000000000000 ]; then exit 1; fi\n  done\nfi\nexit 0\n"
+	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Remove(ctx, []string{"demo"}, true)
+	if exit.CodeOf(err) != exit.Internal || len(result.Removed) != 0 || result.Failed[0].Code != "branch_delete_failed" {
+		t.Fatalf("remove result = %+v, error = %v", result, err)
+	}
+	if _, err := os.Stat(scratch); err != nil {
+		t.Fatalf("worktree not restored: %v", err)
+	}
+	if list, err := svc.List(ctx, false); err != nil || len(list) != 1 {
+		t.Fatalf("manifest changed: list=%+v error=%v", list, err)
+	}
+}
+
+func TestIntegrationRmRecoveryFailureRemainsUndoable(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	if _, err := svc.New(ctx, "feat", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(dir, ".git", "hooks", "reference-transaction")
+	script := "#!/bin/sh\nif [ \"$1\" = prepared ]; then\n  while read old new ref; do\n    if [ \"$ref\" = refs/heads/feat/demo ]; then exit 1; fi\n  done\nfi\nexit 0\n"
+	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Remove(ctx, []string{"demo"}, false)
+	if exit.CodeOf(err) != exit.Internal || len(result.Removed) != 0 || result.Failed[0].Code != "recovery_failed" {
+		t.Fatalf("remove result = %+v, error = %v", result, err)
+	}
+	if _, err := os.Stat(worktreePath(dir, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("expected partial removal, got %v", err)
+	}
+	if err := os.Remove(hook); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Undo(ctx); err != nil {
+		t.Fatalf("undo partial removal: %v", err)
+	}
+	if _, err := os.Stat(worktreePath(dir, "demo")); err != nil {
+		t.Fatalf("worktree not restored: %v", err)
+	}
+	if list, err := svc.List(ctx, false); err != nil || len(list) != 1 {
+		t.Fatalf("manifest after undo = %+v, error=%v", list, err)
+	}
+}
+
+func TestIntegrationRmSkipsCurrentWorktreeInBatch(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	for _, name := range []string{"inside", "other"} {
+		if _, err := svc.New(ctx, "feat", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(worktreePath(dir, "inside"))
+	result, err := svc.Remove(ctx, []string{"inside", "other"}, false)
+	if exit.CodeOf(err) != exit.Refused || len(result.Removed) != 1 || result.Removed[0].Task != "other" {
+		t.Fatalf("remove result = %+v, error = %v", result, err)
+	}
+	if len(result.Failed) != 1 || result.Failed[0].Code != "cwd_in_target" {
+		t.Fatalf("failures = %+v", result.Failed)
+	}
+	if _, err := os.Stat(worktreePath(dir, "inside")); err != nil {
+		t.Fatalf("current worktree removed: %v", err)
+	}
+}
+
+func TestIntegrationRmUndoRetryAfterPartialRestore(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	svc := openSvc(t, ctx, dir)
+	for _, name := range []string{"a", "b"} {
+		if _, err := svc.New(ctx, "feat", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Remove(ctx, []string{"a", "b"}, false); err != nil {
+		t.Fatal(err)
+	}
+	obstacle := worktreePath(dir, "b")
+	if err := os.Mkdir(obstacle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Undo(ctx); err == nil {
+		t.Fatal("expected undo to stop at conflicting path")
+	}
+	if _, err := os.Stat(worktreePath(dir, "a")); err != nil {
+		t.Fatalf("first worktree was not restored: %v", err)
+	}
+	if err := os.Remove(obstacle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Undo(ctx); err != nil {
+		t.Fatalf("retry undo: %v", err)
+	}
+	if list, err := svc.List(ctx, false); err != nil || len(list) != 2 {
+		t.Fatalf("manifest after retry = %+v, error=%v", list, err)
 	}
 }

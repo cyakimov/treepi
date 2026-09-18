@@ -143,12 +143,27 @@ func rmCmd() *cobra.Command {
 			if err != nil {
 				return fail(cmd, "rm", err)
 			}
-			results, err := svc.Remove(cmd.Context(), args, force)
+			result, err := svc.Remove(cmd.Context(), args, force)
 			if jsonMode(cmd) {
-				_ = emitJSONErr(cmd.OutOrStdout(), "rm", results, svc.Warnings(), err)
+				if result == nil || len(args) == 1 && err != nil {
+					if writeErr := emitJSONErr(cmd.OutOrStdout(), "rm", nil, svc.Warnings(), err); writeErr != nil {
+						return writeErr
+					}
+					return err
+				}
+				var data any = result
+				if len(args) == 1 {
+					data = result.Removed[0]
+				}
+				if writeErr := emitJSONErr(cmd.OutOrStdout(), "rm", data, svc.Warnings(), err); writeErr != nil {
+					return writeErr
+				}
 				return err
 			}
-			for _, res := range results {
+			if result == nil {
+				return fail(cmd, "rm", err)
+			}
+			for _, res := range result.Removed {
 				fmt.Fprintf(cmd.OutOrStdout(), "removed %s (%s)\n", res.Task, res.Branch)
 			}
 			if err != nil {

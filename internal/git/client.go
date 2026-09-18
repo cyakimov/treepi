@@ -72,11 +72,19 @@ func (e *CmdError) ExitCode() int {
 
 // out runs git and returns trimmed stdout, or a *CmdError.
 func (c *Client) out(ctx context.Context, dir string, args ...string) (string, error) {
-	stdout, stderr, err := c.run.Run(ctx, dir, args...)
+	stdout, err := c.outRaw(ctx, dir, args...)
 	if err != nil {
-		return "", &CmdError{Args: args, Stderr: string(stderr), Err: err}
+		return "", err
 	}
 	return strings.TrimSpace(string(stdout)), nil
+}
+
+func (c *Client) outRaw(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	stdout, stderr, err := c.run.Run(ctx, dir, args...)
+	if err != nil {
+		return nil, &CmdError{Args: args, Stderr: string(stderr), Err: err}
+	}
+	return stdout, nil
 }
 
 // outEnv is like out but with extra environment (identity, GIT_INDEX_FILE). It

@@ -49,18 +49,17 @@ func parseAheadBehind(s string) (ahead, behind int, err error) {
 // IgnoredPaths lists gitignored files present in the worktree at dir. Used by
 // `rm --force` to warn which paths the snapshot will NOT recover.
 func (c *Client) IgnoredPaths(ctx context.Context, dir string) ([]string, error) {
-	out, err := c.out(ctx, dir, "ls-files", "--others", "--ignored", "--exclude-standard")
+	out, err := c.outRaw(ctx, dir, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
-	out = strings.TrimSpace(out)
-	if out == "" {
+	if len(out) == 0 {
 		return nil, nil
 	}
 	var paths []string
-	for _, line := range bytes.Split([]byte(out), []byte("\n")) {
-		if p := strings.TrimSpace(string(line)); p != "" {
-			paths = append(paths, p)
+	for _, path := range bytes.Split(out, []byte{0}) {
+		if len(path) > 0 {
+			paths = append(paths, string(path))
 		}
 	}
 	return paths, nil

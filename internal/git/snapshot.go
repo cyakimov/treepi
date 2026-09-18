@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -66,6 +67,24 @@ func (c *Client) Snapshot(ctx context.Context, dir, refName string, id Identity,
 		return "", false, fmt.Errorf("snapshot: update-ref: %w", err)
 	}
 	return oid, true, nil
+}
+
+// SnapshotPaths returns the files captured by a snapshot commit.
+func (c *Client) SnapshotPaths(ctx context.Context, dir, oid string) (map[string]bool, error) {
+	paths := map[string]bool{}
+	if oid == "" {
+		return paths, nil
+	}
+	out, err := c.outRaw(ctx, dir, "ls-tree", "-r", "-z", "--name-only", oid)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range bytes.Split(out, []byte{0}) {
+		if len(path) > 0 {
+			paths[string(path)] = true
+		}
+	}
+	return paths, nil
 }
 
 // tempIndexPath returns a unique, non-existent path for a throwaway git index.
