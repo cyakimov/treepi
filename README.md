@@ -4,7 +4,7 @@ Git worktrees done right.
 
 `treepi` (alias `tp`) turns "one worktree per task" into a real workflow: it cuts a worktree from your trunk, runs your setup hooks, and integrates the work back with a verified fast-forward merge - all with a Jujutsu-inspired safety net (an op-log you can `undo`, an auto-snapshot before anything destructive, and reconciliation that flags a crashed-mid-create tree).
 
-> Status: v1 implementation complete (all commands, lifecycle hooks, and cross-platform packaging), pending its first tagged release.
+> Status: v0.1.0 released. The v1 implementation includes all commands, lifecycle hooks, and cross-platform packaging.
 
 ## Why another worktree tool
 
