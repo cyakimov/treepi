@@ -23,6 +23,19 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # A cross-repo PAT so goreleaser can push the cask/scoop manifests to
-          # the tap buckets (the default GITHUB_TOKEN can only write this repo).
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  homebrew:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+      # Opens a bump-treepi-<version> PR on the tap; its CI builds the bottles
+      # and publishes them. A cross-repo PAT is required both to push there and
+      # because PRs opened with GITHUB_TOKEN do not trigger the tap's CI.
+      - run: brew tap cyakimov/tap
+      - run: >-
+          brew bump-formula-pr --no-fork --no-browse --no-audit
+          --version="${GITHUB_REF_NAME#v}" cyakimov/tap/treepi
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
