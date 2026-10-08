@@ -34,21 +34,6 @@ archives:
 checksum:
   name_template: checksums.txt
 
-homebrew_casks:
-  - name: treepi
-    binaries: [treepi]
-    repository:
-      owner: cyakimov
-      name: homebrew-tap
-    homepage: https://github.com/cyakimov/treepi
-    description: Orchestrate git worktrees for humans and agents
-    # Symlink `tp` alongside `treepi` - the `tp` alias is not a second binary.
-    custom_block: |
-      binary "treepi", target: "tp"
-    # The cask is generated but not pushed until a cross-repo HOMEBREW_TAP_TOKEN
-    # exists; set skip_upload to false (and add the secret) to publish the tap.
-    skip_upload: true
-
 scoops:
   - repository:
       owner: cyakimov
@@ -56,7 +41,9 @@ scoops:
     homepage: https://github.com/cyakimov/treepi
     description: Orchestrate git worktrees for humans and agents
     license: Apache-2.0
-    skip_upload: true # see the cask note above
+    # Not pushed until a scoop-bucket repo and a cross-repo token exist; set
+    # skip_upload to false (with a repository token) to publish the bucket.
+    skip_upload: true
 
 release:
   github:
