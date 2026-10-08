@@ -1,0 +1,45 @@
+name: homebrew
+
+# Opens a bump-treepi-<version> PR on cyakimov/homebrew-tap; the tap's CI builds
+# the bottles and publishes them. Called by the release workflow, and runnable
+# by hand to retry a release whose bump failed (e.g. an expired token).
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to bump the formula to (e.g. v0.2.0)
+        required: true
+
+permissions: {}
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+
+      - name: Set up git
+        id: git_setup
+        uses: Homebrew/actions/git-user-config@e99025eb970cfa124b8284a35463d87426917478 # 2026.09.28.1
+
+      - run: brew tap cyakimov/tap
+
+      # A cross-repo PAT is required both to push to the tap and because PRs
+      # opened with GITHUB_TOKEN do not trigger the tap's CI.
+      - run: >-
+          brew bump-formula-pr --no-fork --no-browse --no-audit
+          --version="${TAG#v}" cyakimov/tap/treepi
+        env:
+          TAG: ${{ inputs.tag }}
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_GIT_COMMITTER_NAME: ${{ steps.git_setup.outputs.name }}
+          HOMEBREW_GIT_COMMITTER_EMAIL: ${{ steps.git_setup.outputs.email }}
