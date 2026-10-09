@@ -1,86 +1,171 @@
-# treepi
+# treepi 🌱
 
-Git worktrees done right.
+A small tool I built for my Git worktree workflow, shared in case it fits yours too.
 
-`treepi` (alias `tp`) turns "one worktree per task" into a real workflow: it cuts a worktree from your trunk, runs your setup hooks, and integrates the work back with a verified fast-forward merge - all with a Jujutsu-inspired safety net (an op-log you can `undo`, an auto-snapshot before anything destructive, and reconciliation that flags a crashed-mid-create tree).
+`treepi` helps me keep a worktree per task: create one, set it up with project hooks, and merge the work back when it's ready.
+It runs on macOS, Linux, and Windows, with a `tp` shell shortcut for everyday use.
 
-> Status: v0.2.0 released. The v1 implementation includes all commands, lifecycle hooks, and cross-platform packaging.
+A few things it does:
 
-## Why another worktree tool
-
-The space is crowded (treehouse, gwq, phantom, worktrunk, ...), but nothing combines the three things that matter when you run several worktrees in parallel:
-
-1. **Trees live beside the repo, not inside it.** Worktrees land at `<repo>.worktrees/<task>/`, so eslint, tsc, language servers, file watchers, and docker build contexts never recurse into them. You operate by task name and never hand-navigate a path.
-2. **First-class, verified merge-back.** `treepi merge` rebases onto the real upstream tip, runs your build/test gate, fast-forwards trunk, and cleans up the branch and tree - resumable and recover-to-main if anything fails.
-3. **A safety layer on plain git.** Every mutating operation is journaled with an inverse (`treepi undo`), uncommitted work is snapshotted before any destructive step, and a tree that crashed mid-create is reconciled to an `orphaned` label rather than left in an unknown state. No virtual filesystem, no magic - just inspectable git underneath.
-
-## Agnostic core, policy in hooks
-
-`treepi` knows nothing about ports, databases, languages, or build tools. A fresh worktree is a bare checkout; your repo's committed `.treepi.toml` lifecycle hooks turn it into a runnable environment - carrying over gitignored files, installing deps, and running setup. See [docs/HOOKS.md](docs/HOOKS.md).
-
-## Clean machine-readable output
-
-Every command speaks `--json` with a stable envelope (`{treepi_version, op, ok, data, warnings, error}`) and a documented exit-code taxonomy, so a script branches on the outcome structurally without parsing prose. The same code runs whether you drive it by hand or from automation - there is no separate server.
+- **A little room to grow.** Worktrees live at `<repo>.worktrees/<task>/`, beside the repository, so tools scanning your checkout don't wander into other tasks.
+- **A route back to trunk.** Merge rebases onto the latest upstream tip, runs any configured checks, fast-forwards trunk, and removes the task's worktree and branch.
+- **A way to retrace your steps.** Operations are journaled for `undo`, with snapshots before destructive steps and reconciliation that flags interrupted worktree creation as `orphaned`.
 
 ## Install
 
-**Homebrew** (macOS / Linux):
+### Homebrew · macOS / Linux
 
 ```sh
 brew install cyakimov/tap/treepi
 ```
 
-**Scoop** (Windows):
+### Install script · macOS / Linux
 
-```powershell
-scoop bucket add cyakimov https://github.com/cyakimov/scoop-bucket
-scoop install treepi
-```
-
-**Script** (macOS / Linux, checksum-verified):
+The script downloads a release, verifies its SHA-256 checksum, and installs `treepi` plus a `tp` symlink.
+The default destination is `/usr/local/bin`; set `TREEPI_INSTALL_DIR` to choose another directory.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/cyakimov/treepi/main/install.sh | sh
 ```
 
-**Go**:
+### Go · any supported platform
+
+With Go installed:
 
 ```sh
 go install github.com/cyakimov/treepi/cmd/treepi@latest
 ```
 
-Each of these installs the `treepi` binary plus a `tp` alias. For `tp cd <task>` to change into a tree by name, add the shell wrapper to your rc:
+This installs the `treepi` binary; the shell setup below provides `tp`.
+Make sure Go's binary directory is on your `PATH`.
+
+### Release archives · including Windows
+
+Download the archive for your OS and architecture from [GitHub Releases](https://github.com/cyakimov/treepi/releases), extract it, and place the binary on your `PATH`.
+
+### Give your shell a shortcut 🐚
+
+For bash or zsh, add this to your shell configuration (`~/.bashrc` or `~/.zshrc`):
 
 ```sh
-eval "$(treepi shell-init)"   # bash/zsh; `treepi shell-init fish` for fish
+eval "$(treepi shell-init)"
 ```
 
-## Usage
+For fish, add this to `~/.config/fish/config.fish`:
+
+```fish
+treepi shell-init fish | source
+```
+
+Reload your shell configuration or open a new terminal.
+The `tp` function forwards commands to `treepi`, lists worktrees when called without arguments, and makes `tp cd <task>` change your current directory.
+The directory shortcut supports bash, zsh, and fish; in other shells, use `treepi where <task>` to find the path.
+
+## Plant your first worktree 🌱
+
+Start in an existing Git repository, with the shell shortcut loaded:
 
 ```sh
-treepi init                 # scaffold .treepi.toml + hook stubs (commit them)
-treepi new feat login-fix   # cut a worktree on feat/login-fix from trunk
-treepi new login-fix        # no type -> branch is just login-fix
-tp                          # bare `tp` is just `treepi ls`
-treepi ls                   # static, scriptable table (add --json to script it)
-tp cd login-fix             # cd into a tree by name (needs the shell wrapper)
-treepi sync login-fix       # rebase the tree onto the latest trunk
-treepi merge login-fix      # rebase, verify, fast-forward into trunk, then clean up
-treepi rm login-fix api-fix # discard one or more trees (snapshotted first; undo-able)
-treepi run login-fix -- cmd # run a command in a tree; `run --all` fans out
-treepi undo                 # reverse the last mutating operation
+treepi init                       # scaffold project config and hook stubs
 ```
 
-The branch name comes from `[branch] template` (default `{type}/{task}`): the type is freeform, so `treepi new feat login-fix` gives `feat/login-fix` and `treepi new login-fix` collapses the empty type to just `login-fix`.
+Review `.treepi.toml` and `.treepi/hooks/`, customize them for your project, and commit them before creating a task.
+The generated setup hook uses bash; on Windows, use an available bash installation or configure a PowerShell hook instead.
 
-Every command accepts `--json` (a stable `{treepi_version, op, ok, data, warnings, error}` envelope) and returns a documented exit code, so a caller branches on the outcome structurally without parsing prose.
+```sh
+git add .treepi.toml .treepi/hooks .gitignore
+git commit -m "Configure treepi"
 
-`treepi rm` processes each distinct task name in order, so a missing, dirty, locked, or hook-rejected task does not prevent eligible siblings from being removed.
-It exits nonzero if any task fails, and one `treepi undo` restores the worktrees changed by the batch.
-With `--json`, one task retains the original `{task, branch}` data object; multiple names return `data: {removed: [...], failed: [{task, code, message}]}`.
-The batch envelope has `ok: false` and `error.code: "rm_failed"` when any task fails.
-Warnings about gitignored files excluded from the snapshot appear on stderr and in `warnings`.
+tp new feat login-fix             # create branch feat/login-fix and its worktree
+tp cd login-fix                   # enter the worktree
+
+# Make your changes, then commit them.
+git add <files-you-changed>
+git commit -m "Fix login"
+
+cd -                             # return to the original repository
+tp merge login-fix               # rebase, run configured checks, merge, clean up
+```
+
+Commit your task's changes before merging, and keep the trunk worktree clean too.
+Run merge from outside the task's worktree, since a successful merge removes it.
+
+The type is optional: `tp new login-fix` creates branch `login-fix`.
+Branch names follow `[branch].template`, which defaults to `{type}/{task}`.
+
+## What's in the toolbox?
+
+| Command | What it does |
+| --- | --- |
+| `tp` or `tp ls` | List worktrees and their status. |
+| `tp new feat login-fix` | Create a task worktree from trunk. |
+| `tp cd login-fix` | Enter a worktree using the shell function. |
+| `tp where login-fix` | Print a worktree's path. |
+| `tp sync login-fix` | Rebase a task onto the latest trunk. |
+| `tp merge login-fix` | Rebase, run configured checks, fast-forward trunk, and clean up. |
+| `tp rm login-fix api-fix` | Remove one or more worktrees and their branches. |
+| `tp rm --force login-fix` | Remove a dirty worktree, taking a snapshot first. |
+| `tp run login-fix -- git status` | Run a command in one worktree. |
+| `tp run --all -- git status` | Run a command in every task worktree. |
+| `tp undo` | Reverse the last journaled mutating operation. |
+
+Use `treepi <command> --help` for command options.
+All `tp` examples above also work with `treepi`, except that changing your shell's directory requires the `tp` function.
+
+## Make it feel at home
+
+Project configuration lives in `.treepi.toml`.
+Treepi handles worktrees; your hooks handle dependencies, environment files, databases, and other project setup.
+See the [hooks guide](docs/HOOKS.md) for lifecycle events, examples, and failure behavior.
+
+### Check before merging
+
+Build/test verification is opt-in; the generated configuration leaves it disabled.
+For example, in a Go project:
+
+```toml
+[merge]
+verify = ["go", "test", "./..."]
+```
+
+The command runs in the task worktree after rebasing and before trunk advances.
+If it fails, the merge stops and the task branch stays rebased for you to inspect and fix.
+For more involved checks, configure a `pre_merge` hook.
+Commands are argument arrays, with no implicit shell.
+
+### Keep ignored files in mind
+
+Snapshots honor `.gitignore` by default.
+If you want an ignored file restored by `undo` after removal, include it explicitly:
+
+```toml
+[snapshot]
+include_ignored = [".env", ".env.local"]
+```
+
+Otherwise, copying or recreating ignored files is your setup hook's job.
+
+## For scripts and other helpers 🤖
+
+Task commands support `--json`, so callers can inspect structured results:
+
+```sh
+treepi ls --json
+treepi rm login-fix api-fix --json
+```
+
+The envelope uses `treepi_version`, `op`, and `ok`, plus `data`, `warnings`, and `error` when applicable.
+Errors include a machine-readable `code` and a human-readable `message`.
+See the [exit-code definitions](internal/exit/exit.go) for process exit codes.
+
+Batch removal processes each distinct task in order and continues if a task is missing, dirty, locked, or rejected by a hook.
+It exits nonzero if any task fails; one `treepi undo` restores the worktrees changed by that batch.
+
+For a successful single-task removal, `data` is `{task, branch}`.
+With multiple names, it is `{removed: [...], failed: [{task, code, message}]}`.
+A partially failed batch sets `ok: false` and `error.code: "rm_failed"`.
+Warnings about ignored files excluded from snapshots appear on stderr and in `warnings`.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+[Apache-2.0](LICENSE).
